@@ -1,0 +1,6 @@
+streamlit>=1.33.0
+streamlit-folium>=0.18.0
+streamlit-autorefresh>=1.0.1
+folium>=0.17.0
+pandas>=2.0.0
+mysql-connector-python>=8.0.0

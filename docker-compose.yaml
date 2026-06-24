@@ -1,0 +1,136 @@
+version: "3.9"
+
+services:
+
+  # ── MySQL ────────────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: pci_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: "rootpassword"
+      MYSQL_DATABASE:      "pci"
+      MYSQL_USER:          "pci_user"
+      MYSQL_PASSWORD:      "pci_pass"
+    # Tuned for 50k+ frames: higher connection limit, larger InnoDB buffer,
+    # bigger redo log for bulk INSERT throughput
+    command: >
+      --max_connections=500
+      --innodb_buffer_pool_size=512M
+      --innodb_log_file_size=128M
+      --innodb_flush_log_at_trx_commit=2
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ── RabbitMQ ─────────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: pci_rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: "admin"
+      RABBITMQ_DEFAULT_PASS: "mypass"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ── App (Flask Producer) ──────────────────────────────────────────────────────
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: pci_app
+    restart: always
+    env_file: .env
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./downloaded_images:/app/downloaded_images
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # ── Model Call Worker ─────────────────────────────────────────────────────────
+  model_call:
+    build:
+      context: ./model_call
+      dockerfile: Dockerfile
+    restart: always
+    env_file: .env
+    volumes:
+      - ./downloaded_images:/app/downloaded_images
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      app:
+        condition: service_started
+    deploy:
+      replicas: 16
+
+  #── Processing Engine Worker ─────────────────────────────────────────────────
+  processing_engine:
+    build:
+      context: ./processing_worker
+      dockerfile: Dockerfile
+    restart: always
+    env_file: .env
+    volumes:
+      - ./downloaded_images:/app/downloaded_images
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      model_call:
+        condition: service_started
+    deploy:
+      replicas: 3
+
+  # ── Streamlit Dashboard ──────────────────────────────────────────────────────
+  streamlit:
+    build:
+      context: ./streamlit_app
+      dockerfile: Dockerfile
+    container_name: pci_streamlit
+    restart: always
+    env_file: .env
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./streamlit_app/dashboard.py:/app/dashboard.py
+      - ./streamlit_app/.streamlit:/app/.streamlit
+    environment:
+      # Internal DB hostname (Docker network)
+      MYSQL_HOST:     mysql
+      MYSQL_PORT:     3306
+      MYSQL_USER:     pci_user
+      MYSQL_PASSWORD: pci_pass
+      MYSQL_DB:       pci
+      # Public URL used in popup "View image" links — must reach the Flask app
+      # from the user's browser, so use localhost (port is mapped on the host).
+      FLASK_API_PUBLIC: "http://localhost:5000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+  rabbitmq_data:
+  downloaded_images:
