@@ -343,6 +343,7 @@ def api_frames():
             SELECT f.frame_id, f.latitude, f.longitude,
                    f.municipality, f.submunicipality,
                    f.datetime_utc, f.status, f.created_at,
+                   f.pci_score, f.pci_rating,
                    COUNT(v.id) AS violation_count
             FROM frames f
             LEFT JOIN violations v ON f.frame_id = v.frame_id
@@ -413,6 +414,7 @@ def api_segments():
                    s.end_lat, s.end_lon, s.gps_path,
                    s.frame_count, s.municipality, s.submunicipality,
                    s.status, s.created_at,
+                   s.pci_score, s.pci_rating,
                    COUNT(v.id) AS violation_count
             FROM segments s
             LEFT JOIN violations v ON s.segment_id = v.segment_id

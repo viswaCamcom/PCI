@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS frames (
     local_image_path  VARCHAR(512),
     image_metadata    JSON,
     status            VARCHAR(50)   DEFAULT 'pending',
+    pci_score         FLOAT         DEFAULT NULL,
+    pci_rating        VARCHAR(20)   DEFAULT NULL,
     created_at        VARCHAR(50),
     updated_at        VARCHAR(50)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -57,6 +59,8 @@ CREATE TABLE IF NOT EXISTS segments (
     municipality      VARCHAR(255),
     submunicipality   VARCHAR(255),
     status            VARCHAR(50)   DEFAULT 'active',
+    pci_score         FLOAT         DEFAULT NULL,
+    pci_rating        VARCHAR(20)   DEFAULT NULL,
     created_at        VARCHAR(50),
     sealed_at         VARCHAR(50)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -10,6 +10,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY tasks.py .
+COPY pci_calculator.py .
 
 RUN mkdir -p /app/downloaded_images/annotated
 

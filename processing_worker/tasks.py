@@ -25,6 +25,8 @@ import mysql.connector.pooling
 from mysql.connector import Error as MySQLError
 from PIL import Image, ImageDraw
 
+from pci_calculator import compute_frame_pci, compute_segment_pci, pci_rating
+
 # ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -403,6 +405,53 @@ def update_frame_status(frame_id, status):
         cur.close(); conn.close()
 
 
+def update_frame_pci(frame_id, score, rating):
+    """Persist PCI score and rating for a single frame."""
+    conn = get_conn()
+    cur  = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE frames SET pci_score=%s, pci_rating=%s, updated_at=%s WHERE frame_id=%s",
+            (score, rating, datetime.utcnow().isoformat(), frame_id),
+        )
+        conn.commit()
+        logger.info("PCI frame_id=%s  score=%.1f  rating=%s", frame_id, score, rating)
+    finally:
+        cur.close(); conn.close()
+
+
+def recompute_segment_pci(segment_id):
+    """
+    Query all violations in a segment, compute PCI, and update the segment record.
+    Called every time a new frame is processed for the segment so the score stays current.
+    """
+    conn = get_conn()
+    cur  = conn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            """SELECT label, severity, polygon_area_mm2,
+                      image_width, image_height, gsd_mm_per_px, frame_id
+               FROM violations
+               WHERE segment_id = %s""",
+            (segment_id,),
+        )
+        viols = cur.fetchall()
+
+        score  = compute_segment_pci(viols)
+        rating = pci_rating(score)
+
+        cur.execute(
+            "UPDATE segments SET pci_score=%s, pci_rating=%s WHERE segment_id=%s",
+            (score, rating, segment_id),
+        )
+        conn.commit()
+        logger.info("PCI segment=%s  score=%.1f  rating=%s  violations=%d",
+                    segment_id, score, rating, len(viols))
+        return score, rating
+    finally:
+        cur.close(); conn.close()
+
+
 # ─── Message handler ──────────────────────────────────────────────────────────
 
 def handle_result(channel, method, properties, body):
@@ -445,10 +494,16 @@ def handle_result(channel, method, properties, body):
             image_width, image_height, gsd,
         )
 
-        # ── 4. Mark processed ─────────────────────────────────────────────────
+        # ── 4. Compute and store PCI ──────────────────────────────────────────
+        frame_score  = compute_frame_pci(results, image_width, image_height, gsd)
+        frame_rating = pci_rating(frame_score)
+        update_frame_pci(frame_id, frame_score, frame_rating)
+        recompute_segment_pci(segment_id)
+
+        # ── 5. Mark processed ─────────────────────────────────────────────────
         update_frame_status(frame_id, "processed")
-        logger.info("frame_id=%s done  segment=%s  violations=%d",
-                    frame_id, segment_id, len(results))
+        logger.info("frame_id=%s done  segment=%s  violations=%d  pci=%.1f (%s)",
+                    frame_id, segment_id, len(results), frame_score, frame_rating)
 
         channel.basic_ack(delivery_tag=method.delivery_tag)
 
