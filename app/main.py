@@ -248,16 +248,18 @@ def upload():
         logger.info("DB record created frame_id=%s", frame_id)
     except Exception as e:
         conn.rollback()
-        cur.close(); conn.close()
         logger.error("DB insert failed: %s", e)
         return jsonify({"status": "error", "message": f"DB error: {e}"}), 500
+    finally:
+        # Release connection back to pool BEFORE the slow S3 download so we
+        # don't hold pool slots while waiting for OCI network I/O.
+        cur.close(); conn.close()
 
     # ── 3. Download image from OCI ────────────────────────────────────────────
     s3 = get_s3_client()
     try:
         image_path = download_image(s3, frame_id, image_bucket, image_key)
     except (BotoCoreError, ClientError, RuntimeError) as e:
-        cur.close(); conn.close()
         logger.error("OCI download failed: %s", e)
         return jsonify({"status": "error", "message": f"OCI download failed: {e}"}), 502
 
@@ -270,9 +272,11 @@ def upload():
     except Exception as e:
         logger.error("EXIF extraction failed for frame_id=%s: %s", frame_id, e)
 
-    # ── 5. Update DB with local path + metadata ───────────────────────────────
+    # ── 5. Update DB with local path + metadata (fresh connection) ────────────
+    conn2 = get_conn()
+    cur2  = conn2.cursor()
     try:
-        cur.execute(
+        cur2.execute(
             """
             UPDATE frames
             SET local_image_path = %s,
@@ -288,15 +292,14 @@ def upload():
                 frame_id,
             ),
         )
-        conn.commit()
+        conn2.commit()
         logger.info("DB updated frame_id=%s → downloaded", frame_id)
     except Exception as e:
-        conn.rollback()
+        conn2.rollback()
         logger.error("DB update failed: %s", e)
         return jsonify({"status": "error", "message": f"DB update error: {e}"}), 500
     finally:
-        cur.close()
-        conn.close()
+        cur2.close(); conn2.close()
 
     # ── 6. Publish to RabbitMQ ────────────────────────────────────────────────
     mq_payload = {

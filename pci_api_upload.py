@@ -39,7 +39,7 @@ SRC_DB = dict(
     connection_timeout = 15,
 )
 
-BATCH_SIZE   = 500   # IDs per IN-query
+BATCH_SIZE   = 1000  # IDs per IN-query
 DEFAULT_CSV  = os.path.join(os.path.dirname(__file__), "riyadh_violation_10_days.csv")
 DONE_FILE    = os.path.join(os.path.dirname(__file__), "pci_uploaded_done.txt")
 

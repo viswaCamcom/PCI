@@ -155,11 +155,25 @@ def _exif_val(meta, *keys):
 # Deadlock retry handles the rare case where two replicas lock overlapping
 # bounding boxes in opposite order.
 
+def _nearest_path_dist(lat, lon, row):
+    """Minimum haversine distance from (lat,lon) to any GPS path point in row."""
+    best = haversine_meters(lat, lon, row["end_lat"], row["end_lon"])
+    for pt in row.get("gps_path") or []:
+        d = haversine_meters(lat, lon, pt[0], pt[1])
+        if d < best:
+            best = d
+    return best
+
+
 def _process_segment_tx(lat, lon, municipality, submunicipality,
                          heading, is_stationary):
     """Single DB transaction: find-or-create a segment. Returns segment_id."""
     lat_delta = MAX_GAP_METERS / 111_320.0
     lon_delta = MAX_GAP_METERS / (111_320.0 * math.cos(math.radians(lat)) + 1e-9)
+    # Wider box (3×) used to catch out-of-order frames that land near the
+    # start or middle of an existing segment, not just its end point.
+    lat_wide  = lat_delta * 3
+    lon_wide  = lon_delta * 3
     now = datetime.utcnow().isoformat()
 
     conn = get_conn()
@@ -167,17 +181,23 @@ def _process_segment_tx(lat, lon, municipality, submunicipality,
     try:
         conn.start_transaction(isolation_level="READ COMMITTED")
 
-        # Lock candidate rows so no other worker can extend or create over them
+        # Primary search: end point within normal radius (indexed, fast path).
+        # Fallback: start point within 3× radius — catches frames that arrive
+        # out of order after concurrent workers already advanced the segment end.
         cur.execute(
             """SELECT segment_id, start_lat, start_lon, end_lat, end_lon,
                       gps_path, frame_count, municipality, submunicipality,
                       status, created_at
                FROM segments
                WHERE status = 'active'
-                 AND end_lat BETWEEN %s AND %s
-                 AND end_lon BETWEEN %s AND %s
+                 AND (
+                   (end_lat   BETWEEN %s AND %s AND end_lon   BETWEEN %s AND %s)
+                   OR
+                   (start_lat BETWEEN %s AND %s AND start_lon BETWEEN %s AND %s)
+                 )
                FOR UPDATE""",
-            (lat - lat_delta, lat + lat_delta, lon - lon_delta, lon + lon_delta),
+            (lat - lat_delta, lat + lat_delta, lon - lon_delta, lon + lon_delta,
+             lat - lat_wide,  lat + lat_wide,  lon - lon_wide,  lon + lon_wide),
         )
         rows = cur.fetchall()
 
@@ -186,7 +206,9 @@ def _process_segment_tx(lat, lon, municipality, submunicipality,
 
         for row in rows:
             _parse_gps_path(row)
-            dist = haversine_meters(lat, lon, row["end_lat"], row["end_lon"])
+            # Match against the nearest point on the path, not just the end —
+            # this correctly identifies segments for out-of-order frames.
+            dist = _nearest_path_dist(lat, lon, row)
             if dist > MAX_GAP_METERS:
                 continue
             if not is_stationary and heading is not None:

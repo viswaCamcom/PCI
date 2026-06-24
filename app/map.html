@@ -337,6 +337,26 @@
     }
     .sp-vcard:hover .sp-vcard-img img { transform: scale(1.03); }
 
+    .sp-location {
+      font-size: 12px; color: var(--muted);
+      margin-top: 3px; display: flex; align-items: center; gap: 5px;
+    }
+    .sp-location svg { flex-shrink: 0; opacity: .55; }
+    .sp-coords {
+      margin: 10px 0 0;
+      padding: 9px 12px;
+      border-radius: 10px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px;
+    }
+    .sp-coord-item { display: flex; flex-direction: column; gap: 2px; }
+    .sp-coord-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    .sp-coord-val {
+      font-size: 11px; font-weight: 600; color: var(--text);
+      font-family: "SF Mono", "Fira Code", monospace;
+    }
+
     /* ── Hover tooltip for violations (quick peek) ──────────────────────────── */
     #hover-card {
       position:fixed; z-index:9999; width:350px;
@@ -546,7 +566,13 @@
       </div>
       <button class="sp-close" id="sp-close">✕</button>
     </div>
-    <div class="sp-kpis">
+    <div class="sp-location" id="sp-location">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+      </svg>
+      <span id="sp-location-text">—</span>
+    </div>
+    <div class="sp-kpis" style="margin-top:10px">
       <div class="sp-kpi">
         <span class="sp-kpi-label">Frames</span>
         <span class="sp-kpi-value info" id="sp-frames">—</span>
@@ -558,6 +584,18 @@
       <div class="sp-kpi">
         <span class="sp-kpi-label">Density</span>
         <span class="sp-kpi-value" id="sp-density">—</span>
+      </div>
+    </div>
+    <div class="sp-coords">
+      <div class="sp-coord-item">
+        <span class="sp-coord-label">Start</span>
+        <span class="sp-coord-val" id="sp-start-lat">—</span>
+        <span class="sp-coord-val" id="sp-start-lon">—</span>
+      </div>
+      <div class="sp-coord-item">
+        <span class="sp-coord-label">End</span>
+        <span class="sp-coord-val" id="sp-end-lat">—</span>
+        <span class="sp-coord-val" id="sp-end-lon">—</span>
       </div>
     </div>
   </div>
@@ -815,33 +853,60 @@
       const idx = parseInt(card.dataset.spVindex, 10);
       const v   = filtered[idx];
       card.addEventListener("click", () => {
-        if (v.latitude && v.longitude) {
-          map.setView([v.latitude, v.longitude], Math.max(map.getZoom(), 17));
+        if (!v.latitude || !v.longitude) return;
+        const latlng  = L.latLng(v.latitude, v.longitude);
+        const target  = Math.max(map.getZoom(), 17);
+        const already = map.getCenter().distanceTo(latlng) < 5 && map.getZoom() === target;
+        if (already) {
+          // Map is already centred here — position popup immediately
+          showClickPopupWrapped(v.frame_id, latlng);
+        } else {
+          // Wait for pan/zoom to finish, then position the popup correctly
+          map.once("moveend", () => showClickPopupWrapped(v.frame_id, latlng));
+          map.setView(latlng, target);
         }
-        showClickPopupWrapped(v.frame_id, L.latLng(v.latitude || 0, v.longitude || 0));
       });
     });
+  }
+
+  function segmentLocationName(seg) {
+    const parts = [seg.municipality, seg.submunicipality].filter(Boolean);
+    return parts.length ? parts.join(" · ") : `Segment #${seg.segment_id}`;
   }
 
   function showSegmentPanel(seg, segViolations) {
     const color = segColor(seg);
     const vcount = segViolations.length;
-    const density = seg.frame_count ? (vcount / seg.frame_count * 100).toFixed(0) + "%" : "—";
+    const ratio  = vcount / (seg.frame_count || 1);
+    const density = seg.frame_count ? (ratio * 100).toFixed(0) + "%" : "—";
     const healthLabel = vcount === 0 ? "Clean Segment"
-      : vcount / (seg.frame_count||1) < 0.25 ? "Low Defect Segment"
-      : vcount / (seg.frame_count||1) < 0.60 ? "Medium Defect Segment"
+      : ratio < 0.25 ? "Low Defect Segment"
+      : ratio < 0.60 ? "Medium Defect Segment"
       : "High Defect Segment";
 
     document.getElementById("sp-dot").style.background        = color;
     document.getElementById("sp-title-text").textContent      = healthLabel;
+    document.getElementById("sp-location-text").textContent   = segmentLocationName(seg);
     document.getElementById("sp-frames").textContent          = seg.frame_count || 0;
 
     const vcEl = document.getElementById("sp-vcount");
     vcEl.textContent = vcount;
-    vcEl.className   = "sp-kpi-value " + (vcount === 0 ? "success" : vcount / (seg.frame_count||1) < 0.25 ? "warning" : "danger");
+    vcEl.className   = "sp-kpi-value " + (vcount === 0 ? "success" : ratio < 0.25 ? "warning" : "danger");
 
     document.getElementById("sp-density").textContent         = density;
-    document.getElementById("sp-density").className          = "sp-kpi-value " + (vcount === 0 ? "success" : "warning");
+    document.getElementById("sp-density").className           = "sp-kpi-value " + (vcount === 0 ? "success" : "warning");
+
+    // Coordinates — prefer explicit fields, fall back to first/last GPS path point
+    const path     = seg.gps_path || [];
+    const startLat = seg.start_lat ?? path[0]?.[0];
+    const startLon = seg.start_lon ?? path[0]?.[1];
+    const endLat   = seg.end_lat   ?? path[path.length - 1]?.[0];
+    const endLon   = seg.end_lon   ?? path[path.length - 1]?.[1];
+    const fmt      = v => v != null ? Number(v).toFixed(6) : "—";
+    document.getElementById("sp-start-lat").textContent = fmt(startLat);
+    document.getElementById("sp-start-lon").textContent = fmt(startLon);
+    document.getElementById("sp-end-lat").textContent   = fmt(endLat);
+    document.getElementById("sp-end-lon").textContent   = fmt(endLon);
 
     spCurrentViolations = segViolations;
     spSevFilter = "all";
@@ -1056,13 +1121,14 @@
       const vcount   = seg.violation_count || 0;
       const density  = (vcount / Math.max(seg.frame_count||1,1)*100).toFixed(0);
       const healthLabel = vcount===0 ? "Clean" : density<25 ? "Low defects" : density<60 ? "Medium defects" : "High defects";
+      const locName = [seg.municipality, seg.submunicipality].filter(Boolean).join(" · ") || `Segment #${seg.segment_id}`;
 
       const line = L.polyline(path.map(p=>[p[0],p[1]]), {
         color, weight: isActive?6:7, opacity: isActive?.8:.95,
         dashArray: isActive?"10 6":null, lineCap:"round", lineJoin:"round",
       });
       line.bindTooltip(
-        `<b style="color:${color}">${healthLabel}</b><br>${seg.frame_count} frames · ${vcount} violations<br><span style="color:#6b7a90;font-size:10px">${isActive?"🟢 Active — click to inspect":"⚫ Sealed — click to inspect"}</span>`,
+        `<b style="color:${color}">${locName}</b><br>${healthLabel} · ${seg.frame_count} frames · ${vcount} violations<br><span style="color:#6b7a90;font-size:10px">${isActive?"🟢 Active — click to inspect":"⚫ Sealed — click to inspect"}</span>`,
         { sticky:true, className:"seg-tooltip" }
       );
       // Click → open segment panel
