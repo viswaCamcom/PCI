@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS segments (
     status            VARCHAR(50)   DEFAULT 'active',
     pci_score         FLOAT         DEFAULT NULL,
     pci_rating        VARCHAR(20)   DEFAULT NULL,
+    length_meters     FLOAT         DEFAULT 0,
     created_at        VARCHAR(50),
     sealed_at         VARCHAR(50)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

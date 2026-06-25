@@ -415,6 +415,7 @@ def api_segments():
                    s.frame_count, s.municipality, s.submunicipality,
                    s.status, s.created_at,
                    s.pci_score, s.pci_rating,
+                   s.length_meters,
                    COUNT(v.id) AS violation_count
             FROM segments s
             LEFT JOIN violations v ON s.segment_id = v.segment_id

@@ -120,6 +120,14 @@ def haversine_meters(lat1, lon1, lat2, lon2):
     return 2 * R * math.asin(math.sqrt(a))
 
 
+def compute_segment_length(path):
+    """Sum haversine distances between consecutive GPS path points (meters)."""
+    total = 0.0
+    for i in range(1, len(path)):
+        total += haversine_meters(path[i - 1][0], path[i - 1][1], path[i][0], path[i][1])
+    return round(total, 1)
+
+
 # ─── GPS path helpers ──────────────────────────────────────────────────────────
 
 def _parse_gps_path(row):
@@ -227,11 +235,11 @@ def _process_segment_tx(lat, lon, municipality, submunicipality,
                 """INSERT INTO segments
                    (segment_id, start_lat, start_lon, end_lat, end_lon,
                     gps_path, frame_count, municipality, submunicipality,
-                    status, created_at, sealed_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,NULL)""",
+                    status, length_meters, created_at, sealed_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,NULL)""",
                 (seg_id, new_lat, new_lon, new_lat, new_lon,
                  json.dumps([[new_lat, new_lon]]), 1,
-                 municipality, submunicipality, now),
+                 municipality, submunicipality, 0.0, now),
             )
             return seg_id
 
@@ -263,12 +271,13 @@ def _process_segment_tx(lat, lon, municipality, submunicipality,
         # Extend matched segment
         if not is_stationary:
             path.append([lat, lon])
+        seg_length = compute_segment_length(path)
         cur.execute(
             """UPDATE segments
-               SET end_lat=%s, end_lon=%s, gps_path=%s, frame_count=%s
+               SET end_lat=%s, end_lon=%s, gps_path=%s, frame_count=%s, length_meters=%s
                WHERE segment_id=%s""",
             (lat, lon, json.dumps(path),
-             best_seg.get("frame_count", 0) + 1, seg_id),
+             best_seg.get("frame_count", 0) + 1, seg_length, seg_id),
         )
         conn.commit()
         return seg_id

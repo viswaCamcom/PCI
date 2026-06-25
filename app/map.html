@@ -95,6 +95,13 @@
     .chip.sev-high.active   { background: rgba(220,38,38,.07);  border-color: var(--pothole);    color: var(--pothole); }
     .chip.sev-medium.active { background: rgba(234,88,12,.07);  border-color: var(--seg-medium); color: var(--seg-medium); }
     .chip.sev-low.active    { background: rgba(202,138,4,.07);  border-color: var(--seg-low);    color: var(--seg-low); }
+    .chip.pci-excellent.active  { background: rgba(22,163,74,.08);   border-color: #16a34a; color: #16a34a; }
+    .chip.pci-verygood.active   { background: rgba(34,197,94,.08);   border-color: #22c55e; color: #22c55e; }
+    .chip.pci-good.active       { background: rgba(132,204,22,.08);  border-color: #84cc16; color: #84cc16; }
+    .chip.pci-fair.active       { background: rgba(202,138,4,.08);   border-color: #ca8a04; color: #ca8a04; }
+    .chip.pci-poor.active       { background: rgba(234,88,12,.08);   border-color: #ea580c; color: #ea580c; }
+    .chip.pci-verypoor.active   { background: rgba(220,38,38,.08);   border-color: #dc2626; color: #dc2626; }
+    .chip.pci-failed.active     { background: rgba(127,29,29,.08);   border-color: #7f1d1d; color: #7f1d1d; }
     .chip-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
 
     /* ── Map ─────────────────────────────────────────────────────────────────── */
@@ -267,7 +274,7 @@
     }
     .sp-close:hover { background: #e2e8f0; color: var(--text); }
     .sp-kpis {
-      display: grid; grid-template-columns: repeat(3, 1fr);
+      display: grid; grid-template-columns: repeat(2, 1fr);
       gap: 8px;
     }
     .sp-kpi {
@@ -281,6 +288,7 @@
     .sp-kpi-value.warning { color: var(--seg-medium); }
     .sp-kpi-value.success { color: var(--seg-clean); }
     .sp-kpi-value.info    { color: var(--accent); }
+    .sp-kpi-sub { font-size: 9px; color: var(--muted); margin-top: 1px; line-height: 1.3; }
 
     .sp-filter-row {
       padding: 10px 18px;
@@ -456,6 +464,26 @@
     }
     .sp-pci-bar-label { font-size: 9px; color: var(--muted); text-align: right; }
 
+    /* ── Defect breakdown ────────────────────────────────────────────────────── */
+    .sp-breakdown {
+      padding: 10px 18px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .sp-breakdown-title {
+      font-size: 9px; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .07em; font-weight: 700; margin-bottom: 8px;
+    }
+    .sp-brow {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 5px;
+    }
+    .sp-brow:last-child { margin-bottom: 0; }
+    .sp-brow-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .sp-brow-label { font-size: 11px; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sp-brow-bar-track { flex: 0 0 72px; height: 5px; border-radius: 3px; background: #e2e8f0; overflow: hidden; }
+    .sp-brow-bar-fill  { height: 100%; border-radius: 3px; transition: width .35s ease; }
+    .sp-brow-count { font-size: 12px; font-weight: 800; min-width: 22px; text-align: right; }
+
     /* ── Segment tooltip ─────────────────────────────────────────────────────── */
     .seg-tooltip {
       background:#fff !important; border:1px solid var(--border) !important;
@@ -553,6 +581,32 @@
       <span class="chip-dot" style="background:var(--seg-low)"></span>Low
     </button>
   </div>
+  <div class="filter-sep"></div>
+  <div class="filter-group">
+    <span class="filter-label">Road Condition</span>
+    <button class="chip active"           data-group="pci" data-label="all">All</button>
+    <button class="chip pci-excellent"    data-group="pci" data-label="Excellent">
+      <span class="chip-dot" style="background:#16a34a"></span>Excellent
+    </button>
+    <button class="chip pci-verygood"     data-group="pci" data-label="Very Good">
+      <span class="chip-dot" style="background:#22c55e"></span>Very Good
+    </button>
+    <button class="chip pci-good"         data-group="pci" data-label="Good">
+      <span class="chip-dot" style="background:#84cc16"></span>Good
+    </button>
+    <button class="chip pci-fair"         data-group="pci" data-label="Fair">
+      <span class="chip-dot" style="background:#ca8a04"></span>Fair
+    </button>
+    <button class="chip pci-poor"         data-group="pci" data-label="Poor">
+      <span class="chip-dot" style="background:#ea580c"></span>Poor
+    </button>
+    <button class="chip pci-verypoor"     data-group="pci" data-label="Very Poor">
+      <span class="chip-dot" style="background:#dc2626"></span>Very Poor
+    </button>
+    <button class="chip pci-failed"       data-group="pci" data-label="Failed">
+      <span class="chip-dot" style="background:#7f1d1d"></span>Failed
+    </button>
+  </div>
 </div>
 
 <!-- ── Map ───────────────────────────────────────────────────────────────────── -->
@@ -617,6 +671,7 @@
       <div class="sp-kpi">
         <span class="sp-kpi-label">Frames</span>
         <span class="sp-kpi-value info" id="sp-frames">—</span>
+        <span class="sp-kpi-sub" id="sp-frames-detected"></span>
       </div>
       <div class="sp-kpi">
         <span class="sp-kpi-label">Violations</span>
@@ -625,6 +680,11 @@
       <div class="sp-kpi">
         <span class="sp-kpi-label">Density</span>
         <span class="sp-kpi-value" id="sp-density">—</span>
+      </div>
+      <div class="sp-kpi">
+        <span class="sp-kpi-label">Road Stretch</span>
+        <span class="sp-kpi-value info" id="sp-stretch">—</span>
+        <span class="sp-kpi-sub" id="sp-stretch-sub"></span>
       </div>
     </div>
     <div class="sp-coords">
@@ -639,6 +699,11 @@
         <span class="sp-coord-val" id="sp-end-lon">—</span>
       </div>
     </div>
+  </div>
+  <!-- Defect type breakdown (outside sp-header so it can have its own border) -->
+  <div class="sp-breakdown" id="sp-breakdown" style="display:none">
+    <div class="sp-breakdown-title">Detections by Type</div>
+    <div id="sp-breakdown-rows"></div>
   </div>
   <div class="sp-filter-row">
     <span class="sp-filter-label">Filter</span>
@@ -738,8 +803,8 @@
     subdomains: "abcd", maxZoom: 20,
   }).addTo(map);
 
-  let allViolations=[], allFrames=[], segLayers=[], markerList=[], frameMarkerList=[];
-  let activeTypeFilter="all", activeSevFilter="all";
+  let allViolations=[], allFrames=[], allSegments=[], segLayers=[], markerList=[], frameMarkerList=[];
+  let activeTypeFilter="all", activeSevFilter="all", activePciFilter="all";
   let initialBoundsDone = false;
 
   // ── Click popup ─────────────────────────────────────────────────────────────
@@ -852,6 +917,7 @@
 
   document.getElementById("sp-close").addEventListener("click", () => {
     segPanel.classList.remove("open");
+    clearMarkerHighlight();
   });
 
   document.querySelectorAll(".sp-chip[data-sp-filter]").forEach(btn => {
@@ -928,6 +994,21 @@
     return parts.length ? parts.join(" · ") : `Segment #${seg.segment_id}`;
   }
 
+  const DEFECT_TYPES = [
+    { key: "pothole",            label: "Pothole",            color: "#dc2626" },
+    { key: "alligator_crack",    label: "Alligator Crack",    color: "#7c3aed" },
+    { key: "longitudinal_crack", label: "Longitudinal Crack", color: "#d97706" },
+    { key: "transverse_crack",   label: "Transverse Crack",   color: "#0891b2" },
+    { key: "rutting",            label: "Rutting",            color: "#059669" },
+    { key: "road_crack",         label: "Road Crack",         color: "#f59e0b" },
+  ];
+
+  function fmtLength(m) {
+    if (m == null || m === 0) return "—";
+    if (m >= 1000) return (m / 1000).toFixed(2) + " km";
+    return Math.round(m) + " m";
+  }
+
   function showSegmentPanel(seg, segViolations) {
     const color  = segColor(seg);
     const vcount = segViolations.length;
@@ -990,6 +1071,53 @@
     document.getElementById("sp-end-lat").textContent   = fmt(endLat);
     document.getElementById("sp-end-lon").textContent   = fmt(endLon);
 
+    // Detected-frames sub-label (unique frames that have violations in this segment)
+    const detectedFrames = new Set(segViolations.map(v => v.frame_id)).size;
+    const subEl = document.getElementById("sp-frames-detected");
+    if (detectedFrames > 0 && detectedFrames < (seg.frame_count || 0)) {
+      subEl.textContent = detectedFrames + " with detections";
+    } else {
+      subEl.textContent = "";
+    }
+
+    // Road stretch
+    const stretchEl    = document.getElementById("sp-stretch");
+    const stretchSubEl = document.getElementById("sp-stretch-sub");
+    const lenM = seg.length_meters;
+    stretchEl.textContent    = fmtLength(lenM);
+    stretchEl.className      = "sp-kpi-value info";
+    stretchSubEl.textContent = (lenM && lenM >= 1000)
+      ? Math.round(lenM) + " m total"
+      : (lenM && lenM > 0) ? "along GPS path" : "";
+
+    // Defect type breakdown
+    const typeCounts = {};
+    segViolations.forEach(v => {
+      const k = (v.label || "unknown").toLowerCase();
+      typeCounts[k] = (typeCounts[k] || 0) + 1;
+    });
+    const rowsEl    = document.getElementById("sp-breakdown-rows");
+    const wrapEl    = document.getElementById("sp-breakdown");
+    const present   = DEFECT_TYPES.filter(t => typeCounts[t.key] > 0);
+    if (present.length === 0) {
+      wrapEl.style.display = "none";
+    } else {
+      const maxCount = Math.max(...present.map(t => typeCounts[t.key]));
+      rowsEl.innerHTML = present.map(t => {
+        const cnt  = typeCounts[t.key];
+        const pct  = Math.round((cnt / maxCount) * 100);
+        return `<div class="sp-brow">
+          <span class="sp-brow-dot" style="background:${t.color}"></span>
+          <span class="sp-brow-label">${t.label}</span>
+          <div class="sp-brow-bar-track">
+            <div class="sp-brow-bar-fill" style="width:${pct}%;background:${t.color}"></div>
+          </div>
+          <span class="sp-brow-count" style="color:${t.color}">${cnt}</span>
+        </div>`;
+      }).join("");
+      wrapEl.style.display = "block";
+    }
+
     spCurrentViolations = segViolations;
     spSevFilter = "all";
     document.querySelectorAll(".sp-chip[data-sp-filter]").forEach(b => b.classList.remove("active"));
@@ -998,6 +1126,7 @@
     renderSpList(segViolations);
     segPanel.classList.add("open");
     hideClickPopup();
+    highlightSegmentMarkers(seg.segment_id);
   }
 
   // ── Hover card (violation mouseover) ────────────────────────────────────────
@@ -1141,7 +1270,7 @@
   }
   lightbox.addEventListener("click", (e) => { if (e.target===lightbox||e.target===lightboxImg) closeLightbox(); });
   document.getElementById("lightbox-close").addEventListener("click", closeLightbox);
-  document.addEventListener("keydown", (e) => { if (e.key==="Escape") { closeLightbox(); hideClickPopup(); segPanel.classList.remove("open"); } });
+  document.addEventListener("keydown", (e) => { if (e.key==="Escape") { closeLightbox(); hideClickPopup(); segPanel.classList.remove("open"); clearMarkerHighlight(); } });
 
   // ── Data loading ────────────────────────────────────────────────────────────
   async function loadData() {
@@ -1153,7 +1282,7 @@
       ]);
       allViolations = await vr.json();
       allFrames     = await fr.json();
-      const segs    = await sr.json();
+      allSegments   = await sr.json();
 
       // Build frame index for popup metadata
       frameIndex = {};
@@ -1168,11 +1297,11 @@
       document.getElementById("stat-high").textContent = high;
       document.getElementById("stat-med").textContent  = med;
       document.getElementById("stat-low").textContent  = low;
-      document.getElementById("stat-s").textContent    = segs.length;
+      document.getElementById("stat-s").textContent    = allSegments.length;
       document.getElementById("stat-updated").textContent =
         new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
 
-      renderSegments(segs);
+      renderSegments(filteredSegments());
       renderFrameMarkers(allFrames);
       renderMarkers(allViolations);
 
@@ -1221,6 +1350,7 @@
       // Click → open segment panel
       line.on("click", (e) => {
         L.DomEvent.stopPropagation(e);
+        clearMarkerHighlight();
         const segViols = allViolations.filter(v => v.segment_id === seg.segment_id);
         showSegmentPanel(seg, segViols);
       });
@@ -1228,16 +1358,25 @@
       line.on("mouseout",  () => line.setStyle({ weight: isActive?6:7,  opacity: isActive?.8:.95 }));
       line.addTo(map); segLayers.push(line);
 
-      const startPt = path[0];
-      const dot = L.circleMarker([startPt[0],startPt[1]], {
-        radius:5, color:"#0a0e14", fillColor:color, fillOpacity:1, weight:2,
+      // One dot per GPS path point — each point = one captured frame
+      path.forEach((pt, idx) => {
+        const isFirst = idx === 0;
+        const isLast  = idx === path.length - 1;
+        const dot = L.circleMarker([pt[0], pt[1]], {
+          radius:      isFirst || isLast ? 5 : 3.5,
+          color:       "#0a0e14",
+          fillColor:   color,
+          fillOpacity: isFirst || isLast ? 1 : 0.75,
+          weight:      isFirst || isLast ? 2 : 1.5,
+        });
+        dot.on("click", (e) => {
+          L.DomEvent.stopPropagation(e);
+          clearMarkerHighlight();
+          const segViols = allViolations.filter(v => v.segment_id === seg.segment_id);
+          showSegmentPanel(seg, segViols);
+        });
+        dot.addTo(map); segLayers.push(dot);
       });
-      dot.on("click", (e) => {
-        L.DomEvent.stopPropagation(e);
-        const segViols = allViolations.filter(v => v.segment_id === seg.segment_id);
-        showSegmentPanel(seg, segViols);
-      });
-      dot.addTo(map); segLayers.push(dot);
     });
   }
 
@@ -1255,6 +1394,7 @@
         radius: 6, color: "#8394a8", fillColor: "#c5cfd9",
         fillOpacity: .9, weight: 1.5,
       });
+      m._frameId = f.frame_id;
 
       // Click → show popup card
       m.on("click", (e) => {
@@ -1303,6 +1443,8 @@
           radius, color, fillColor:color, fillOpacity:.85, weight:2,
         });
       }
+      m._segmentId = v.segment_id;
+      m._frameId   = v.frame_id;
 
       // Hover → show violation detail card
       m.on("mouseover", (e) => showCard(v, e));
@@ -1320,7 +1462,57 @@
     });
   }
 
+  // ── Segment marker highlight / dim ─────────────────────────────────────────
+  function highlightSegmentMarkers(segmentId) {
+    // Violation markers: brighten matches, heavily dim others
+    markerList.forEach(m => {
+      const belongs = m._segmentId === segmentId;
+      if (m.setStyle) {
+        m.setStyle(belongs
+          ? { fillOpacity: 1, weight: 3, opacity: 1 }
+          : { fillOpacity: 0.08, weight: 1, opacity: 0.2 });
+      } else {
+        // divIcon (high-severity pulse marker)
+        const el = m.getElement();
+        if (el) el.style.opacity = belongs ? "1" : "0.12";
+      }
+    });
+    // Frame-only markers (no violations): dim all — we can't tell which segment they belong to
+    frameMarkerList.forEach(m => {
+      m.setStyle({ fillOpacity: 0.08, weight: 1, opacity: 0.2 });
+    });
+  }
+
+  function clearMarkerHighlight() {
+    markerList.forEach(m => {
+      if (m.setStyle) {
+        m.setStyle({ fillOpacity: 0.85, weight: 2, opacity: 1 });
+      } else {
+        const el = m.getElement();
+        if (el) el.style.opacity = "1";
+      }
+    });
+    frameMarkerList.forEach(m => {
+      m.setStyle({ fillOpacity: 0.9, weight: 1.5, opacity: 1 });
+    });
+  }
+
+  // ── PCI segment filter helper ───────────────────────────────────────────────
+  function filteredSegments() {
+    if (activePciFilter === "all") return allSegments;
+    return allSegments.filter(s => s.pci_rating === activePciFilter);
+  }
+
   // ── Filter buttons ──────────────────────────────────────────────────────────
+  document.querySelectorAll(".chip[data-group='pci']").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".chip[data-group='pci']").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      activePciFilter = btn.dataset.label;
+      renderSegments(filteredSegments());
+    });
+  });
+
   document.querySelectorAll(".chip[data-group='type']").forEach(btn => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".chip[data-group='type']").forEach(b => b.classList.remove("active"));
