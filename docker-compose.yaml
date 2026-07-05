@@ -82,7 +82,7 @@ services:
       app:
         condition: service_started
     deploy:
-      replicas: 16
+      replicas: 32
 
   #── Processing Engine Worker ─────────────────────────────────────────────────
   processing_engine:

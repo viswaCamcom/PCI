@@ -6,7 +6,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     pkg-config \
     default-libmysqlclient-dev \
-    exiftool \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

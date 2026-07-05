@@ -29,3 +29,25 @@ def on_starting(server):
     )
     init_db()
     logging.getLogger(__name__).info("DB ready — gunicorn starting workers")
+
+
+def post_fork(server, worker):
+    """Runs in each worker right after fork.
+    1. Stagger startup so 4 workers don't hammer DB simultaneously.
+    2. Warm the cache so the first browser request is always instant.
+    3. Start a daemon thread that refreshes the cache every 50 s so it
+       never expires cold (TTL is 60 s — refresh at 50 s avoids thundering herd).
+    """
+    import time as _time
+    log = logging.getLogger(__name__)
+    _time.sleep(worker.age * 0.5)
+    for attempt in range(1, 3):
+        try:
+            from main import warmup_cache, start_cache_refresher
+            warmup_cache()
+            start_cache_refresher()
+            return
+        except Exception as e:
+            log.warning("Cache warmup attempt %d failed: %s", attempt, e)
+            if attempt < 2:
+                _time.sleep(5)

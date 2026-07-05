@@ -52,7 +52,7 @@ def _get_pool() -> "mysql.connector.pooling.MySQLConnectionPool":
     return _pool
 
 
-def get_conn(max_retries: int = 5, retry_delay: float = 3.0):
+def get_conn(max_retries: int = 5, retry_delay: float = 0.5):
     """
     Return a connection from the pool.
     Retries on startup races (MySQL container not yet ready).

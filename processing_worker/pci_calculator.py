@@ -250,6 +250,38 @@ def compute_segment_pci(segment_violations):
     return round(max(0.0, min(100.0, 100.0 - cdv)), 1)
 
 
+def compute_segment_pci_from_aggregates(distress_rows, frame_rows):
+    """
+    Compute segment PCI from pre-aggregated DB rows — avoids fetching every violation.
+
+    distress_rows : list of dicts {label, severity, total_area_mm2}
+                    (one row per GROUP BY label, severity)
+    frame_rows    : list of dicts {image_width, image_height, gsd_mm_per_px}
+                    (one row per GROUP BY frame_id)
+    """
+    if not distress_rows or not frame_rows:
+        return 100.0
+
+    total_area = sum(
+        _frame_sample_area(r.get("image_width"), r.get("image_height"), r.get("gsd_mm_per_px"))
+        for r in frame_rows
+    )
+    if total_area <= 0:
+        return 100.0
+
+    dvs = [
+        _get_dv(r["label"], r["severity"],
+                (float(r.get("total_area_mm2") or 0) / total_area) * 100)
+        for r in distress_rows
+        if float(r.get("total_area_mm2") or 0) > 0
+    ]
+    if not dvs:
+        return 100.0
+
+    cdv = compute_cdv(dvs)
+    return round(max(0.0, min(100.0, 100.0 - cdv)), 1)
+
+
 def pci_rating(score):
     """Return ASTM D6433 condition rating string for a PCI score."""
     if score is None:

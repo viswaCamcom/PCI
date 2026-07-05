@@ -1,7 +1,4 @@
 flask
-boto3
 pika
 mysql-connector-python
 gunicorn
-Pillow
-pyexiftool

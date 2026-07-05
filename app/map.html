@@ -438,6 +438,63 @@
       display:flex; align-items:center; justify-content:center; transition:background .15s;
     }
     #lightbox-close:hover { background:rgba(255,255,255,.22); }
+    #lightbox-prev, #lightbox-next {
+      position:fixed; top:50%; transform:translateY(-50%);
+      width:52px; height:52px; border-radius:50%;
+      background:rgba(255,255,255,.13); border:1.5px solid rgba(255,255,255,.22);
+      color:#fff; font-size:36px; line-height:1; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+      transition:background .15s; z-index:100001;
+    }
+    #lightbox-prev { left:22px; }
+    #lightbox-next { right:22px; }
+    #lightbox-prev:hover, #lightbox-next:hover { background:rgba(255,255,255,.28); }
+    #lightbox-prev:disabled, #lightbox-next:disabled { opacity:.25; cursor:default; }
+    #lightbox-counter { font-size:11px; color:rgba(255,255,255,.45); margin-top:-8px; }
+
+    /* ── Sub-municipality segment list panel ────────────────────────────────── */
+    #submuni-panel {
+      display:none; position:fixed; left:16px; top:110px;
+      width:295px; max-height:calc(100vh - 130px);
+      background:#fff; border-radius:16px;
+      border:1.5px solid var(--border);
+      box-shadow:0 8px 32px rgba(0,0,0,.10);
+      z-index:900; flex-direction:column; overflow:hidden;
+    }
+    #submuni-panel.open { display:flex; }
+    .smp-header {
+      padding:14px 16px 10px; border-bottom:1px solid var(--border); flex-shrink:0;
+    }
+    .smp-title { font-size:13px; font-weight:700; color:var(--text); }
+    .smp-count { font-size:11px; color:var(--muted); margin-top:2px; }
+    .smp-tabs {
+      display:flex; gap:5px; padding:8px 12px;
+      border-bottom:1px solid var(--border); flex-shrink:0;
+    }
+    .smp-tab {
+      flex:1; padding:5px 6px; border-radius:8px;
+      border:1.5px solid var(--border); background:#f8fafc;
+      font-size:11px; font-weight:600; cursor:pointer; text-align:center; transition:all .12s;
+    }
+    .smp-tab[data-smp="all"].active  { background:var(--accent); color:#fff; border-color:transparent; }
+    .smp-tab[data-smp="green"].active  { background:#16a34a; color:#fff; border-color:transparent; }
+    .smp-tab[data-smp="orange"].active { background:#ea580c; color:#fff; border-color:transparent; }
+    .smp-tab[data-smp="red"].active    { background:#dc2626; color:#fff; border-color:transparent; }
+    .smp-list { flex:1; overflow-y:auto; padding:6px 8px; }
+    .smp-row {
+      display:flex; align-items:center; gap:8px;
+      padding:8px 10px; border-radius:10px;
+      cursor:pointer; transition:background .12s; margin-bottom:2px;
+    }
+    .smp-row:hover { background:#f1f5f9; }
+    .smp-row-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+    .smp-row-name { flex:1; font-size:12px; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .smp-row-pci { font-size:11px; font-weight:800; }
+
+    /* ── Segment name chip in panel header ──────────────────────────────────── */
+    .sp-seg-name-row {
+      font-size:11px; font-weight:600; margin-top:4px; letter-spacing:.01em;
+    }
 
     /* ── PCI score badge (in segment panel header) ───────────────────────────── */
     .sp-pci-wrap {
@@ -509,6 +566,37 @@
       font-size:10px !important; border-top-left-radius:6px !important;
     }
     .leaflet-control-attribution a { color:var(--accent) !important; }
+
+    /* ── Municipality dropdown filters ──────────────────────────────────────── */
+    .filter-select {
+      padding: 4px 28px 4px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      outline: none;
+      transition: all .15s;
+      font-family: inherit;
+      min-width: 130px;
+      max-width: 220px;
+    }
+    .filter-select:hover { border-color: #94a3b8; color: var(--text); background-color: #fff; }
+    .filter-select:disabled { opacity: .45; cursor: default; }
+    .filter-select.has-value {
+      background-color: var(--accent-dim);
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 600;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%232563eb'/%3E%3C/svg%3E");
+    }
   </style>
 </head>
 <body>
@@ -569,20 +657,6 @@
   </div>
   <div class="filter-sep"></div>
   <div class="filter-group">
-    <span class="filter-label">Severity</span>
-    <button class="chip active"      data-group="sev" data-label="all">All</button>
-    <button class="chip sev-high"    data-group="sev" data-label="high">
-      <span class="chip-dot" style="background:var(--pothole)"></span>High
-    </button>
-    <button class="chip sev-medium"  data-group="sev" data-label="medium">
-      <span class="chip-dot" style="background:var(--seg-medium)"></span>Medium
-    </button>
-    <button class="chip sev-low"     data-group="sev" data-label="low">
-      <span class="chip-dot" style="background:var(--seg-low)"></span>Low
-    </button>
-  </div>
-  <div class="filter-sep"></div>
-  <div class="filter-group">
     <span class="filter-label">Road Condition</span>
     <button class="chip active"           data-group="pci" data-label="all">All</button>
     <button class="chip pci-excellent"    data-group="pci" data-label="Excellent">
@@ -606,6 +680,19 @@
     <button class="chip pci-failed"       data-group="pci" data-label="Failed">
       <span class="chip-dot" style="background:#7f1d1d"></span>Failed
     </button>
+  </div>
+  <div class="filter-sep"></div>
+  <div class="filter-group">
+    <span class="filter-label">Municipality</span>
+    <select class="filter-select" id="filter-muni">
+      <option value="all">All Municipalities</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">Sub-municipality</span>
+    <select class="filter-select" id="filter-submuni" disabled>
+      <option value="all">All Sub-municipalities</option>
+    </select>
   </div>
 </div>
 
@@ -650,6 +737,9 @@
         <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
       </svg>
       <span id="sp-location-text">—</span>
+    </div>
+    <div class="sp-seg-name-row" id="sp-seg-name-row" style="display:none">
+      <span id="sp-seg-name"></span>
     </div>
     <!-- PCI Score Badge -->
     <div class="sp-pci-wrap" id="sp-pci-wrap">
@@ -705,13 +795,6 @@
     <div class="sp-breakdown-title">Detections by Type</div>
     <div id="sp-breakdown-rows"></div>
   </div>
-  <div class="sp-filter-row">
-    <span class="sp-filter-label">Filter</span>
-    <button class="sp-chip active" data-sp-filter="all">All</button>
-    <button class="sp-chip" data-sp-filter="high">High</button>
-    <button class="sp-chip" data-sp-filter="medium">Medium</button>
-    <button class="sp-chip" data-sp-filter="low">Low</button>
-  </div>
   <div class="sp-list" id="sp-list"></div>
 </div>
 
@@ -740,11 +823,29 @@
   </div>
 </div>
 
+<!-- ── Sub-municipality segment list panel ──────────────────────────────── -->
+<div id="submuni-panel">
+  <div class="smp-header">
+    <div class="smp-title" id="smp-title">Segments</div>
+    <div class="smp-count" id="smp-count"></div>
+  </div>
+  <div class="smp-tabs">
+    <button class="smp-tab active" data-smp="all">All</button>
+    <button class="smp-tab" data-smp="green">Green</button>
+    <button class="smp-tab" data-smp="orange">Orange</button>
+    <button class="smp-tab" data-smp="red">Red</button>
+  </div>
+  <div class="smp-list" id="smp-list"></div>
+</div>
+
 <!-- ── Lightbox ───────────────────────────────────────────────────────────── -->
 <div id="lightbox">
   <button id="lightbox-close" title="Close (Esc)">✕</button>
+  <button id="lightbox-prev" title="Previous">&#8249;</button>
+  <button id="lightbox-next" title="Next">&#8250;</button>
   <img id="lightbox-img" src="" alt="Full size defect image"/>
   <div id="lightbox-meta"></div>
+  <div id="lightbox-counter"></div>
 </div>
 
 
@@ -785,15 +886,19 @@
   }
 
   function segColor(seg) {
-    if (seg.pci_score != null) return pciColor(seg.pci_score);
-    // fallback to violation density if PCI not yet computed
     const v = seg.violation_count || 0;
     const f = Math.max(seg.frame_count || 1, 1);
-    if (v === 0) return "#3fb950";
-    const d = v / f;
-    if (d < 0.25) return "#d29922";
-    if (d < 0.60) return "#e5742a";
-    return "#f85149";
+    if (v === 0)        return "#16a34a";   // green  — no violations
+    if (v / f < 0.25)  return "#f97316";   // orange — minimal violations
+    return "#dc2626";                        // red    — heavy violations
+  }
+
+  function segLabel(seg) {
+    const v = seg.violation_count || 0;
+    const f = Math.max(seg.frame_count || 1, 1);
+    if (v === 0)       return "No Violations";
+    if (v / f < 0.25)  return "Minimal Violations";
+    return "Heavy Violations";
   }
 
   // ── Map init ────────────────────────────────────────────────────────────────
@@ -805,7 +910,15 @@
 
   let allViolations=[], allFrames=[], allSegments=[], segLayers=[], markerList=[], frameMarkerList=[];
   let activeTypeFilter="all", activeSevFilter="all", activePciFilter="all";
+  let activeMuniFilter="all", activeSubmuniFilter="all";
   let initialBoundsDone = false;
+
+  function fmtCount(n) {
+    if (n == null) return "—";
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+    if (n >= 10000)   return (n / 1000).toFixed(1) + "K";
+    return n.toLocaleString();
+  }
 
   // ── Click popup ─────────────────────────────────────────────────────────────
   const clickPopup  = document.getElementById("click-popup");
@@ -858,7 +971,7 @@
     cpStatus.textContent = statusLabel;
 
     cpMuni.textContent = f.municipality || f.submunicipality || "—";
-    cpDate.textContent = f.datetime_utc || f.created_at || "—";
+    cpDate.textContent = f.datetime_utc || "—";
 
     if (vc > 0) {
       cpHint.innerHTML = `<span>Click marker to view detections</span>`;
@@ -912,35 +1025,24 @@
 
   // ── Segment panel ────────────────────────────────────────────────────────────
   const segPanel  = document.getElementById("seg-panel");
-  let spSevFilter = "all";
   let spCurrentViolations = [];
+  let lightboxViolIdx = -1;
 
   document.getElementById("sp-close").addEventListener("click", () => {
     segPanel.classList.remove("open");
     clearMarkerHighlight();
   });
 
-  document.querySelectorAll(".sp-chip[data-sp-filter]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".sp-chip[data-sp-filter]").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      spSevFilter = btn.dataset.spFilter;
-      renderSpList(spCurrentViolations);
-    });
-  });
-
   function renderSpList(viols) {
     const list = document.getElementById("sp-list");
-    const filtered = spSevFilter === "all"
-      ? viols
-      : viols.filter(v => (v.severity||"low").toLowerCase() === spSevFilter);
+    const filtered = viols;
 
     if (filtered.length === 0) {
       list.innerHTML = `<div class="sp-empty">
         <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".3">
           <circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/>
         </svg>
-        <span>No violations${spSevFilter !== "all" ? " at " + spSevFilter + " severity" : ""}</span>
+        <span>No violations detected in this segment</span>
       </div>`;
       return;
     }
@@ -961,7 +1063,7 @@
           <span>Frame <b>${v.frame_id}</b></span>
           ${v.length_mm ? `<span><b>${v.length_mm.toFixed(0)}mm</b></span>` : ""}
         </div>
-        <div class="sp-vcard-img">
+        <div class="sp-vcard-img" data-sp-imgidx="${i}">
           <img src="${API}/api/image/${v.frame_id}" alt="" loading="lazy"
                onerror="this.parentElement.style.display='none'"/>
         </div>
@@ -972,16 +1074,20 @@
     list.querySelectorAll(".sp-vcard[data-sp-vindex]").forEach(card => {
       const idx = parseInt(card.dataset.spVindex, 10);
       const v   = filtered[idx];
-      card.addEventListener("click", () => {
+      card.addEventListener("click", (e) => {
+        // Image click → open lightbox
+        if (e.target.closest(".sp-vcard-img")) {
+          e.stopPropagation();
+          openLightboxAt(idx, filtered);
+          return;
+        }
         if (!v.latitude || !v.longitude) return;
         const latlng  = L.latLng(v.latitude, v.longitude);
         const target  = Math.max(map.getZoom(), 17);
         const already = map.getCenter().distanceTo(latlng) < 5 && map.getZoom() === target;
         if (already) {
-          // Map is already centred here — position popup immediately
           showClickPopupWrapped(v.frame_id, latlng);
         } else {
-          // Wait for pan/zoom to finish, then position the popup correctly
           map.once("moveend", () => showClickPopupWrapped(v.frame_id, latlng));
           map.setView(latlng, target);
         }
@@ -1009,24 +1115,20 @@
     return Math.round(m) + " m";
   }
 
-  function showSegmentPanel(seg, segViolations) {
+  function showSegmentPanel(seg, _unused) {
     const color  = segColor(seg);
-    const vcount = segViolations.length;
-    const ratio  = vcount / (seg.frame_count || 1);
+    // Use the authoritative violation_count from the segment record.
+    // The pre-loaded allViolations is capped at 10 K rows and may not contain
+    // all violations for this segment — we fetch them from the API below.
+    const vcount  = seg.violation_count || 0;
+    const ratio   = vcount / Math.max(seg.frame_count || 1, 1);
     const density = seg.frame_count ? (ratio * 100).toFixed(0) + "%" : "—";
 
-    // PCI-based health label; fall back to density-based label if score absent
     const score  = seg.pci_score;
-    const rating = seg.pci_rating;
-    const healthLabel = rating
-      ? rating + " Condition"
-      : vcount === 0 ? "Clean Segment"
-      : ratio < 0.25 ? "Low Defect Segment"
-      : ratio < 0.60 ? "Medium Defect Segment"
-      : "High Defect Segment";
+    const healthLabel = segLabel(seg) + " Segment";
 
     document.getElementById("sp-dot").style.background        = color;
-    document.getElementById("sp-title-text").textContent      = healthLabel;
+    document.getElementById("sp-title-text").textContent      = seg.segment_name || segmentLocationName(seg);
     document.getElementById("sp-location-text").textContent   = segmentLocationName(seg);
     document.getElementById("sp-frames").textContent          = seg.frame_count || 0;
 
@@ -1071,62 +1173,84 @@
     document.getElementById("sp-end-lat").textContent   = fmt(endLat);
     document.getElementById("sp-end-lon").textContent   = fmt(endLon);
 
-    // Detected-frames sub-label (unique frames that have violations in this segment)
-    const detectedFrames = new Set(segViolations.map(v => v.frame_id)).size;
+    // Detected-frames sub-label — derived from violation_count (frame-level granularity
+    // is updated asynchronously below after per-segment violations load)
     const subEl = document.getElementById("sp-frames-detected");
-    if (detectedFrames > 0 && detectedFrames < (seg.frame_count || 0)) {
-      subEl.textContent = detectedFrames + " with detections";
-    } else {
-      subEl.textContent = "";
-    }
+    subEl.textContent = "";
 
-    // Road stretch
+    // Road stretch — use stored path length; fall back to straight-line haversine
+    // between start and end coordinates if length_meters is missing.
     const stretchEl    = document.getElementById("sp-stretch");
     const stretchSubEl = document.getElementById("sp-stretch-sub");
-    const lenM = seg.length_meters;
+    let lenM = seg.length_meters || null;
+    let stretchSub = "";
+    if (lenM && lenM > 0) {
+      stretchSub = lenM >= 1000 ? Math.round(lenM) + " m path length" : "along GPS path";
+    } else if (startLat != null && startLon != null && endLat != null && endLon != null) {
+      // Haversine straight-line distance between segment endpoints
+      const R    = 6371000;
+      const φ1   = startLat * Math.PI / 180, φ2 = endLat * Math.PI / 180;
+      const Δφ   = (endLat  - startLat) * Math.PI / 180;
+      const Δλ   = (endLon  - startLon) * Math.PI / 180;
+      const a    = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+      lenM       = 2 * R * Math.asin(Math.sqrt(a));
+      stretchSub = "start → end (straight line)";
+    }
     stretchEl.textContent    = fmtLength(lenM);
     stretchEl.className      = "sp-kpi-value info";
-    stretchSubEl.textContent = (lenM && lenM >= 1000)
-      ? Math.round(lenM) + " m total"
-      : (lenM && lenM > 0) ? "along GPS path" : "";
+    stretchSubEl.textContent = stretchSub;
 
-    // Defect type breakdown
-    const typeCounts = {};
-    segViolations.forEach(v => {
-      const k = (v.label || "unknown").toLowerCase();
-      typeCounts[k] = (typeCounts[k] || 0) + 1;
-    });
-    const rowsEl    = document.getElementById("sp-breakdown-rows");
-    const wrapEl    = document.getElementById("sp-breakdown");
-    const present   = DEFECT_TYPES.filter(t => typeCounts[t.key] > 0);
-    if (present.length === 0) {
-      wrapEl.style.display = "none";
-    } else {
-      const maxCount = Math.max(...present.map(t => typeCounts[t.key]));
-      rowsEl.innerHTML = present.map(t => {
-        const cnt  = typeCounts[t.key];
-        const pct  = Math.round((cnt / maxCount) * 100);
-        return `<div class="sp-brow">
-          <span class="sp-brow-dot" style="background:${t.color}"></span>
-          <span class="sp-brow-label">${t.label}</span>
-          <div class="sp-brow-bar-track">
-            <div class="sp-brow-bar-fill" style="width:${pct}%;background:${t.color}"></div>
-          </div>
-          <span class="sp-brow-count" style="color:${t.color}">${cnt}</span>
-        </div>`;
-      }).join("");
-      wrapEl.style.display = "block";
-    }
+    document.getElementById("sp-seg-name-row").style.display = "none";
 
-    spCurrentViolations = segViolations;
-    spSevFilter = "all";
-    document.querySelectorAll(".sp-chip[data-sp-filter]").forEach(b => b.classList.remove("active"));
-    document.querySelector(".sp-chip[data-sp-filter='all']").classList.add("active");
+    // Show panel immediately with summary stats; load violation details async.
+    const rowsEl = document.getElementById("sp-breakdown-rows");
+    const wrapEl = document.getElementById("sp-breakdown");
+    wrapEl.style.display = "none";
+    spCurrentViolations = [];
+    renderSpList([]);
 
-    renderSpList(segViolations);
     segPanel.classList.add("open");
     hideClickPopup();
     highlightSegmentMarkers(seg.segment_id);
+
+    // Async: fetch every violation for this segment (bypasses the 10 K global cap)
+    fetch(`${API}/api/violations?segment_id=${encodeURIComponent(seg.segment_id)}`)
+      .then(r => r.json())
+      .then(segViolations => {
+        // Detected-frames sub-label
+        const detectedFrames = new Set(segViolations.map(v => v.frame_id)).size;
+        if (detectedFrames > 0 && detectedFrames < (seg.frame_count || 0)) {
+          subEl.textContent = detectedFrames + " with detections";
+        }
+
+        // Defect type breakdown
+        const typeCounts = {};
+        segViolations.forEach(v => {
+          const k = (v.label || "unknown").toLowerCase();
+          typeCounts[k] = (typeCounts[k] || 0) + 1;
+        });
+        const present = DEFECT_TYPES.filter(t => typeCounts[t.key] > 0);
+        if (present.length > 0) {
+          const maxCount = Math.max(...present.map(t => typeCounts[t.key]));
+          rowsEl.innerHTML = present.map(t => {
+            const cnt = typeCounts[t.key];
+            const pct = Math.round((cnt / maxCount) * 100);
+            return `<div class="sp-brow">
+              <span class="sp-brow-dot" style="background:${t.color}"></span>
+              <span class="sp-brow-label">${t.label}</span>
+              <div class="sp-brow-bar-track">
+                <div class="sp-brow-bar-fill" style="width:${pct}%;background:${t.color}"></div>
+              </div>
+              <span class="sp-brow-count" style="color:${t.color}">${cnt}</span>
+            </div>`;
+          }).join("");
+          wrapEl.style.display = "block";
+        }
+
+        spCurrentViolations = segViolations;
+        renderSpList(segViolations);
+      })
+      .catch(() => { /* panel already shows correct counts — list just stays empty */ });
   }
 
   // ── Hover card (violation mouseover) ────────────────────────────────────────
@@ -1198,15 +1322,6 @@
       const ctx = hcCv.getContext("2d");
       ctx.drawImage(img, 0, 0, hcCv.width, hcCv.height);
 
-      const poly = Array.isArray(v.polygon_points) ? v.polygon_points : [];
-      if (poly.length >= 3) {
-        ctx.beginPath();
-        poly.forEach(([px,py],i) => i===0 ? ctx.moveTo(px*scale,py*scale) : ctx.lineTo(px*scale,py*scale));
-        ctx.closePath();
-        ctx.fillStyle   = hexAlpha(color, 0.3);
-        ctx.fill();
-        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
-      }
       if (v.bbox_xmin != null) {
         const x0=v.bbox_xmin*scale, y0=v.bbox_ymin*scale;
         const x1=v.bbox_xmax*scale, y1=v.bbox_ymax*scale;
@@ -1249,58 +1364,111 @@
   }
 
   // ── Lightbox ────────────────────────────────────────────────────────────────
-  const lightbox     = document.getElementById("lightbox");
-  const lightboxImg  = document.getElementById("lightbox-img");
-  const lightboxMeta = document.getElementById("lightbox-meta");
+  const lightbox        = document.getElementById("lightbox");
+  const lightboxImg     = document.getElementById("lightbox-img");
+  const lightboxMeta    = document.getElementById("lightbox-meta");
+  const lightboxCounter = document.getElementById("lightbox-counter");
+  const lightboxPrev    = document.getElementById("lightbox-prev");
+  const lightboxNext    = document.getElementById("lightbox-next");
 
-  function openLightbox(frameId, label, sev, conf) {
-    lightboxImg.src = `${API}/api/image/${frameId}`;
-    lightboxMeta.innerHTML =
-      `<span><b>${label}</b></span>` +
-      `<span>Severity: <b style="text-transform:capitalize">${sev}</b></span>` +
-      `<span>Confidence: <b>${(conf*100).toFixed(1)}%</b></span>` +
-      `<span style="color:rgba(255,255,255,.35)">Frame ${frameId}</span>`;
+  let _lbViolList = [];
+
+  function _lbRender(idx) {
+    if (idx < 0 || idx >= _lbViolList.length) return;
+    lightboxViolIdx = idx;
+    const v = _lbViolList[idx];
+    if (v.frame_id !== undefined) {
+      // violation object
+      lightboxImg.src = `${API}/api/image/${v.frame_id}`;
+      const sev  = (v.severity || "").toLowerCase();
+      const conf = v.confidence != null ? (v.confidence * 100).toFixed(1) + "%" : "—";
+      lightboxMeta.innerHTML =
+        `<span><b>${displayLabel(v.label)}</b></span>` +
+        (sev  ? `<span>Severity: <b style="text-transform:capitalize">${sev}</b></span>` : "") +
+        `<span>Confidence: <b>${conf}</b></span>` +
+        `<span style="color:rgba(255,255,255,.35)">Frame ${v.frame_id}</span>`;
+    } else {
+      // plain frame id string
+      lightboxImg.src = `${API}/api/image/${v}`;
+      lightboxMeta.innerHTML = `<span style="color:rgba(255,255,255,.35)">Frame ${v}</span>`;
+    }
+    lightboxCounter.textContent = _lbViolList.length > 1
+      ? `${idx + 1} / ${_lbViolList.length}` : "";
+    lightboxPrev.disabled = idx === 0;
+    lightboxNext.disabled = idx === _lbViolList.length - 1;
+  }
+
+  function openLightboxAt(idx, violList) {
+    _lbViolList = violList || spCurrentViolations;
     lightbox.classList.add("open");
     document.body.style.overflow = "hidden";
+    _lbRender(idx);
   }
+
+  function openLightbox(frameId, label, sev, conf) {
+    _lbViolList = [{ frame_id: frameId, label: label || "Frame Image", severity: sev || "", confidence: conf || 0 }];
+    lightboxViolIdx = 0;
+    lightbox.classList.add("open");
+    document.body.style.overflow = "hidden";
+    _lbRender(0);
+  }
+
   function closeLightbox() {
     lightbox.classList.remove("open");
     lightboxImg.src = "";
     document.body.style.overflow = "";
+    _lbViolList = [];
   }
+
+  lightboxPrev.addEventListener("click", (e) => { e.stopPropagation(); _lbRender(lightboxViolIdx - 1); });
+  lightboxNext.addEventListener("click", (e) => { e.stopPropagation(); _lbRender(lightboxViolIdx + 1); });
+
   lightbox.addEventListener("click", (e) => { if (e.target===lightbox||e.target===lightboxImg) closeLightbox(); });
   document.getElementById("lightbox-close").addEventListener("click", closeLightbox);
-  document.addEventListener("keydown", (e) => { if (e.key==="Escape") { closeLightbox(); hideClickPopup(); segPanel.classList.remove("open"); clearMarkerHighlight(); } });
+  document.addEventListener("keydown", (e) => {
+    if (!lightbox.classList.contains("open")) {
+      if (e.key==="Escape") { hideClickPopup(); segPanel.classList.remove("open"); clearMarkerHighlight(); }
+      return;
+    }
+    if (e.key==="Escape")      closeLightbox();
+    else if (e.key==="ArrowLeft"  && !lightboxPrev.disabled) _lbRender(lightboxViolIdx - 1);
+    else if (e.key==="ArrowRight" && !lightboxNext.disabled) _lbRender(lightboxViolIdx + 1);
+  });
 
   // ── Data loading ────────────────────────────────────────────────────────────
   async function loadData() {
     try {
-      const [vr, fr, sr] = await Promise.all([
+      const [vr, fr, sr, statsr] = await Promise.all([
         fetch(`${API}/api/violations`),
         fetch(`${API}/api/frames`),
         fetch(`${API}/api/segments`),
+        fetch(`${API}/api/stats`),
       ]);
       allViolations = await vr.json();
       allFrames     = await fr.json();
       allSegments   = await sr.json();
+      const stats   = await statsr.json();
 
-      // Build frame index for popup metadata
+      // Build frame index and compute violation_count client-side
       frameIndex = {};
-      allFrames.forEach(f => { frameIndex[f.frame_id] = f; });
+      allFrames.forEach(f => { f.violation_count = 0; frameIndex[f.frame_id] = f; });
+      allViolations.forEach(v => {
+        const f = frameIndex[v.frame_id];
+        if (f) f.violation_count = (f.violation_count || 0) + 1;
+      });
 
-      // Stats
-      const high = allViolations.filter(v=>(v.severity||"").toLowerCase()==="high").length;
-      const med  = allViolations.filter(v=>(v.severity||"").toLowerCase()==="medium").length;
-      const low  = allViolations.filter(v=>(v.severity||"").toLowerCase()==="low").length;
-      document.getElementById("stat-f").textContent    = allFrames.length;
-      document.getElementById("stat-v").textContent    = allViolations.length;
-      document.getElementById("stat-high").textContent = high;
-      document.getElementById("stat-med").textContent  = med;
-      document.getElementById("stat-low").textContent  = low;
-      document.getElementById("stat-s").textContent    = allSegments.length;
+      // Header: show real DB totals from /api/stats (not LIMIT-capped counts)
+      document.getElementById("stat-f").textContent = fmtCount(stats.total_frames);
+      document.getElementById("stat-v").textContent = fmtCount(stats.total_violations);
+      document.getElementById("stat-s").textContent = fmtCount(stats.total_segments);
+
+      document.getElementById("stat-high").textContent = fmtCount(stats.total_high   || 0);
+      document.getElementById("stat-med").textContent  = fmtCount(stats.total_medium || 0);
+      document.getElementById("stat-low").textContent  = fmtCount(stats.total_low    || 0);
       document.getElementById("stat-updated").textContent =
         new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
 
+      populateMuniFilters();
       renderSegments(filteredSegments());
       renderFrameMarkers(allFrames);
       renderMarkers(allViolations);
@@ -1330,44 +1498,33 @@
       const color    = segColor(seg);
       const isActive = seg.status === "active";
       const vcount   = seg.violation_count || 0;
-      const density  = (vcount / Math.max(seg.frame_count||1,1)*100).toFixed(0);
-      const healthLabel = seg.pci_rating
-        ? seg.pci_rating
-        : vcount===0 ? "Clean" : density<25 ? "Low defects" : density<60 ? "Medium defects" : "High defects";
+      const healthLabel = segLabel(seg);
       const locName = [seg.municipality, seg.submunicipality].filter(Boolean).join(" · ") || `Segment #${seg.segment_id}`;
 
       const line = L.polyline(path.map(p=>[p[0],p[1]]), {
-        color, weight: isActive?6:7, opacity: isActive?.8:.95,
-        dashArray: isActive?"10 6":null, lineCap:"round", lineJoin:"round",
+        color, weight: 5, opacity: 0.85, lineCap:"round", lineJoin:"round",
       });
-      const pciLabel = seg.pci_score != null
-        ? `PCI ${seg.pci_score.toFixed(1)} · ${seg.pci_rating || ""} · `
-        : "";
+      const pciLabel = seg.pci_score != null ? `PCI ${seg.pci_score.toFixed(1)} · ` : "";
       line.bindTooltip(
-        `<b style="color:${color}">${locName}</b><br>${pciLabel}${seg.frame_count} frames · ${vcount} violations<br><span style="color:#6b7a90;font-size:10px">${isActive?"🟢 Active — click to inspect":"⚫ Sealed — click to inspect"}</span>`,
+        `<b style="color:${color}">${locName}</b><br><span style="color:${color}">${healthLabel}</span> · ${pciLabel}${seg.frame_count} frames · ${vcount} violations<br><span style="color:#6b7a90;font-size:10px">Click to inspect</span>`,
         { sticky:true, className:"seg-tooltip" }
       );
       // Click → open segment panel
       line.on("click", (e) => {
         L.DomEvent.stopPropagation(e);
         clearMarkerHighlight();
-        const segViols = allViolations.filter(v => v.segment_id === seg.segment_id);
-        showSegmentPanel(seg, segViols);
+        showSegmentPanel(seg);
       });
       line.on("mouseover", () => line.setStyle({ weight: isActive?9:10, opacity:1 }));
       line.on("mouseout",  () => line.setStyle({ weight: isActive?6:7,  opacity: isActive?.8:.95 }));
       line.addTo(map); segLayers.push(line);
 
-      // One dot per GPS path point — each point = one captured frame
-      path.forEach((pt, idx) => {
-        const isFirst = idx === 0;
-        const isLast  = idx === path.length - 1;
+      // Only start and end dots (not one per GPS point).
+      // One dot per point × 5000 segments × 80 points = 400 K DOM elements → browser freeze.
+      [[path[0], true], [path[path.length - 1], false]].forEach(([pt, isFirst]) => {
+        if (!pt) return;
         const dot = L.circleMarker([pt[0], pt[1]], {
-          radius:      isFirst || isLast ? 5 : 3.5,
-          color:       "#0a0e14",
-          fillColor:   color,
-          fillOpacity: isFirst || isLast ? 1 : 0.75,
-          weight:      isFirst || isLast ? 2 : 1.5,
+          radius: 5, color: "#0a0e14", fillColor: color, fillOpacity: 1, weight: 2,
         });
         dot.on("click", (e) => {
           L.DomEvent.stopPropagation(e);
@@ -1384,11 +1541,16 @@
   function renderFrameMarkers(frames) {
     frameMarkerList.forEach(m => map.removeLayer(m));
     frameMarkerList = [];
+    // Only render individual frame dots at street level — adding thousands of
+    // DOM elements at lower zoom freezes the browser and gains nothing visually.
+    if (map.getZoom() < 16) return;
     const violatedIds = new Set(allViolations.map(v => v.frame_id));
 
     frames.forEach(f => {
       if (!f.latitude || !f.longitude) return;
-      if (violatedIds.has(f.frame_id)) return; // violation markers handle these
+      if (violatedIds.has(f.frame_id)) return;
+      if (activeMuniFilter    !== "all" && f.municipality    !== activeMuniFilter)    return;
+      if (activeSubmuniFilter !== "all" && f.submunicipality !== activeSubmuniFilter) return;
 
       const m = L.circleMarker([f.latitude, f.longitude], {
         radius: 6, color: "#8394a8", fillColor: "#c5cfd9",
@@ -1416,9 +1578,16 @@
     const filtered = violations.filter(v => {
       if (v.latitude==null || v.longitude==null) return false;
       const typeOk = activeTypeFilter==="all" || normLabel(v.label)===activeTypeFilter;
-      const sev    = (v.severity||"low").toLowerCase();
-      const sevOk  = activeSevFilter==="all" || sev===activeSevFilter;
-      return typeOk && sevOk;
+      if (!typeOk) return false;
+      if (activeMuniFilter !== "all") {
+        const f = frameIndex[v.frame_id];
+        if (!f || f.municipality !== activeMuniFilter) return false;
+      }
+      if (activeSubmuniFilter !== "all") {
+        const f = frameIndex[v.frame_id];
+        if (!f || f.submunicipality !== activeSubmuniFilter) return false;
+      }
+      return true;
     });
 
     filtered.forEach(v => {
@@ -1499,8 +1668,51 @@
 
   // ── PCI segment filter helper ───────────────────────────────────────────────
   function filteredSegments() {
-    if (activePciFilter === "all") return allSegments;
-    return allSegments.filter(s => s.pci_rating === activePciFilter);
+    return allSegments.filter(s => {
+      if (activePciFilter       !== "all" && s.pci_rating      !== activePciFilter)       return false;
+      if (activeMuniFilter      !== "all" && s.municipality     !== activeMuniFilter)      return false;
+      if (activeSubmuniFilter   !== "all" && s.submunicipality  !== activeSubmuniFilter)   return false;
+      return true;
+    });
+  }
+
+  // ── Municipality / sub-municipality filter dropdown population ───────────────
+  function populateMuniFilters() {
+    const muniMap = new Map(); // municipality → Set of sub-municipalities
+    [...allFrames, ...allSegments].forEach(item => {
+      const m = (item.municipality    || "").trim();
+      const s = (item.submunicipality || "").trim();
+      if (!m) return;
+      if (!muniMap.has(m)) muniMap.set(m, new Set());
+      if (s) muniMap.get(m).add(s);
+    });
+
+    const muniEl = document.getElementById("filter-muni");
+    const subEl  = document.getElementById("filter-submuni");
+    const prevM  = muniEl.value;
+    const prevS  = subEl.value;
+
+    muniEl.innerHTML = '<option value="all">All Municipalities</option>';
+    [...muniMap.keys()].sort().forEach(m => {
+      const opt = document.createElement("option");
+      opt.value = m; opt.textContent = m;
+      muniEl.appendChild(opt);
+    });
+
+    // Restore selection if the municipality still exists after a data refresh
+    if (prevM !== "all" && muniMap.has(prevM)) {
+      muniEl.value = prevM;
+      subEl.innerHTML = '<option value="all">All Sub-municipalities</option>';
+      [...(muniMap.get(prevM) || [])].sort().forEach(s => {
+        const opt = document.createElement("option");
+        opt.value = s; opt.textContent = s;
+        subEl.appendChild(opt);
+      });
+      subEl.disabled = false;
+      if (prevS !== "all" && muniMap.get(prevM)?.has(prevS)) subEl.value = prevS;
+    }
+
+    window._muniMap = muniMap;
   }
 
   // ── Filter buttons ──────────────────────────────────────────────────────────
@@ -1521,17 +1733,125 @@
       renderMarkers(allViolations);
     });
   });
-  document.querySelectorAll(".chip[data-group='sev']").forEach(btn => {
+  // ── Sub-municipality segment panel ──────────────────────────────────────────
+  const smpPanel    = document.getElementById("submuni-panel");
+  const smpTitle    = document.getElementById("smp-title");
+  const smpCount    = document.getElementById("smp-count");
+  const smpListEl   = document.getElementById("smp-list");
+  let smpColorFilter = "all";
+
+  const GREEN_RATINGS  = new Set(["Excellent", "Very Good", "Good"]);
+  const ORANGE_RATINGS = new Set(["Fair", "Poor"]);
+  const RED_RATINGS    = new Set(["Very Poor", "Failed"]);
+
+  function smpGroup(seg) {
+    const r = seg.pci_rating || "";
+    if (GREEN_RATINGS.has(r))  return "green";
+    if (ORANGE_RATINGS.has(r)) return "orange";
+    return "red";
+  }
+
+  function renderSmpPanel(segs) {
+    if (activeSubmuniFilter === "all") {
+      smpPanel.classList.remove("open");
+      return;
+    }
+    smpPanel.classList.add("open");
+    const subSegs = segs.filter(s => s.submunicipality === activeSubmuniFilter);
+    smpTitle.textContent = activeSubmuniFilter;
+    const green  = subSegs.filter(s => smpGroup(s) === "green").length;
+    const orange = subSegs.filter(s => smpGroup(s) === "orange").length;
+    const red    = subSegs.filter(s => smpGroup(s) === "red").length;
+    smpCount.textContent = `${subSegs.length} segments · ${green} green · ${orange} orange · ${red} red`;
+
+    const visible = smpColorFilter === "all"
+      ? subSegs
+      : subSegs.filter(s => smpGroup(s) === smpColorFilter);
+
+    if (visible.length === 0) {
+      smpListEl.innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No segments</div>`;
+      return;
+    }
+
+    smpListEl.innerHTML = visible.map((seg, i) => {
+      const color = segColor(seg);
+      const name  = seg.segment_name || `Segment #${seg.segment_id}`;
+      const pci   = seg.pci_score != null ? seg.pci_score.toFixed(1) : "—";
+      return `<div class="smp-row" data-smp-idx="${i}">
+        <span class="smp-row-dot" style="background:${color}"></span>
+        <span class="smp-row-name" title="${name}">${name}</span>
+        <span class="smp-row-pci" style="color:${color}">${pci}</span>
+      </div>`;
+    }).join("");
+
+    smpListEl.querySelectorAll(".smp-row[data-smp-idx]").forEach(row => {
+      const idx = parseInt(row.dataset.smpIdx, 10);
+      const seg = visible[idx];
+      row.addEventListener("click", () => {
+        showSegmentPanel(seg);
+        // Pan map to segment start
+        const path = seg.gps_path || [];
+        if (path.length > 0) {
+          const bounds = L.latLngBounds(path.map(p => [p[0], p[1]]));
+          map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+        }
+      });
+    });
+  }
+
+  document.querySelectorAll(".smp-tab").forEach(btn => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll(".chip[data-group='sev']").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".smp-tab").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
-      activeSevFilter = btn.dataset.label;
-      renderMarkers(allViolations);
+      smpColorFilter = btn.dataset.smp;
+      renderSmpPanel(allSegments);
     });
   });
 
+  // ── Municipality / sub-municipality filter events ───────────────────────────
+  document.getElementById("filter-muni").addEventListener("change", function() {
+    activeMuniFilter    = this.value;
+    activeSubmuniFilter = "all";
+    this.classList.toggle("has-value", this.value !== "all");
+
+    const subEl = document.getElementById("filter-submuni");
+    subEl.innerHTML = '<option value="all">All Sub-municipalities</option>';
+    if (this.value !== "all" && window._muniMap?.has(this.value)) {
+      [...window._muniMap.get(this.value)].sort().forEach(s => {
+        const opt = document.createElement("option");
+        opt.value = s; opt.textContent = s;
+        subEl.appendChild(opt);
+      });
+      subEl.disabled = false;
+    } else {
+      subEl.disabled = true;
+    }
+    subEl.value = "all";
+    subEl.classList.remove("has-value");
+
+    smpPanel.classList.remove("open");
+    renderSegments(filteredSegments());
+    renderMarkers(allViolations);
+    renderFrameMarkers(allFrames);
+  });
+
+  document.getElementById("filter-submuni").addEventListener("change", function() {
+    activeSubmuniFilter = this.value;
+    this.classList.toggle("has-value", this.value !== "all");
+    smpColorFilter = "all";
+    document.querySelectorAll(".smp-tab").forEach(b => b.classList.remove("active"));
+    document.querySelector(".smp-tab[data-smp='all']").classList.add("active");
+    renderSegments(filteredSegments());
+    renderMarkers(allViolations);
+    renderFrameMarkers(allFrames);
+    renderSmpPanel(allSegments);
+  });
+
+  // Re-evaluate frame marker visibility whenever zoom changes
+  map.on("zoomend", () => renderFrameMarkers(allFrames));
+
   loadData();
-  setInterval(loadData, 10000);
+  setInterval(loadData, 30000);
 </script>
 </body>
 </html>

@@ -5,7 +5,7 @@ Consumes from : result_queue
 
 For each message:
   1. Parse model_response → extract detections
-  2. Detect/extend road segment (single atomic transaction with FOR UPDATE)
+  2. Detect/extend road segment (advisory lock + FOR UPDATE — multi-worker safe)
   3. Draw bounding boxes + polygons on image via PIL → save annotated image
   4. Save violations to DB
   5. Update frame status → 'processed'
@@ -25,7 +25,8 @@ import mysql.connector.pooling
 from mysql.connector import Error as MySQLError
 from PIL import Image, ImageDraw
 
-from pci_calculator import compute_frame_pci, compute_segment_pci, pci_rating
+from pci_calculator import (compute_frame_pci, compute_segment_pci,
+                             compute_segment_pci_from_aggregates, pci_rating)
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -44,11 +45,23 @@ RESULT_QUEUE  = "result_queue"
 DOWNLOAD_DIR  = os.environ.get("DOWNLOAD_DIR",  "/app/downloaded_images")
 ANNOTATED_DIR = os.environ.get("ANNOTATED_DIR", "/app/downloaded_images/annotated")
 
-TURN_THRESHOLD     = 45.0   # degrees — real intersection turn
+TURN_THRESHOLD     = 30.0   # degrees — city roads cross at 30–45°; tighter catches more
 SMOOTH_WINDOW      = 3      # GPS points used to derive segment heading
 MIN_SEGMENT_FRAMES = 2      # frames before computed-bearing turn detection arms
 MAX_GAP_METERS     = 150    # GPS jump larger than this → different road
 MIN_SPEED_KMH      = 5.0    # skip GPS advancement for stationary frames
+
+# Path-computed bearing constants (mirrors offline_resegment.py)
+_BEAR_MIN_DIST    = 30    # metres — skip bearing check when frame is closer than this
+_BEAR_RECENT_N    = 10    # last N path points used to derive current road direction
+_STATIONARY_M     = 3     # frames closer than this are treated as stationary GPS fixes
+MAX_CROSS_TRACK_M = 30.0  # max perpendicular deviation from road line → new segment
+                           # (slightly relaxed vs offline because online frames can arrive
+                           # out-of-order from 32 concurrent workers)
+
+# Advisory lock grid — must be wider than MAX_GAP_METERS so any two GPS points
+# that could belong to the same segment share at least one lock key.
+_LOCK_CELL = 0.002          # ≈ 222 m at the equator
 
 os.makedirs(ANNOTATED_DIR, exist_ok=True)
 
@@ -111,6 +124,18 @@ def heading_delta(h1, h2):
     d = abs(h1 - h2)
     return min(d, 360 - d)
 
+def cross_track_dist(lat1, lon1, lat2, lon2, lat3, lon3):
+    """Perpendicular distance (m) from (lat3,lon3) to the infinite line through the
+    other two points.  Catches lateral jumps to parallel roads that share the same
+    heading and therefore pass the bearing-only check."""
+    R    = 6_371_000
+    mlat = R * math.pi / 180
+    mlon = R * math.cos(math.radians((lat1 + lat2) / 2)) * math.pi / 180
+    x2 = (lon2 - lon1) * mlon;  y2 = (lat2 - lat1) * mlat
+    x3 = (lon3 - lon1) * mlon;  y3 = (lat3 - lat1) * mlat
+    seg = math.hypot(x2, y2)
+    return abs(x2 * y3 - y2 * x3) / seg if seg > 1.0 else math.hypot(x3, y3)
+
 def haversine_meters(lat1, lon1, lat2, lon2):
     R = 6_371_000
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
@@ -156,14 +181,43 @@ def _exif_val(meta, *keys):
     return None
 
 
-# ─── Segment detection — atomic transaction with row-level locking ─────────────
+def _geo_lock_keys(lat, lon):
+    """
+    Return ≤4 sorted MySQL advisory-lock keys covering the segment search area.
+
+    The bounding box is 2×MAX_GAP_METERS wide (~0.0027°).  Since _LOCK_CELL
+    (0.002°) > half that width, the box touches at most 2 cells per axis → at
+    most 4 keys total.  Sorting prevents inter-worker deadlock (all workers
+    acquire the same keys in the same order).
+    """
+    lat_delta = MAX_GAP_METERS / 111_320.0
+    lon_delta = MAX_GAP_METERS / (111_320.0 * math.cos(math.radians(lat)) + 1e-9)
+
+    def _snap(v):
+        return math.floor(v / _LOCK_CELL) * _LOCK_CELL
+
+    return sorted({
+        f"seg:{_snap(la):.4f}:{_snap(lo):.4f}"
+        for la in (lat - lat_delta, lat + lat_delta)
+        for lo in (lon - lon_delta, lon + lon_delta)
+    })
+
+
+# ─── Segment detection — advisory lock + row-level locking ────────────────────
 #
-# Using SELECT … FOR UPDATE inside a READ COMMITTED transaction ensures that
-# two concurrent processing_engine replicas cannot both see "no matching segment"
-# and both insert a duplicate segment for the same GPS point.
+# Multi-worker safety requires two layers of locking:
 #
-# Deadlock retry handles the rare case where two replicas lock overlapping
-# bounding boxes in opposite order.
+#   1. MySQL advisory lock (GET_LOCK) on geographic grid keys — prevents the
+#      "phantom insert" race: SELECT … FOR UPDATE only locks existing rows, so
+#      two workers that both find "no matching segment" would both INSERT,
+#      creating duplicate segments for the same road.  The advisory lock
+#      serialises workers within the same ~222 m cell before they even read.
+#
+#   2. SELECT … FOR UPDATE inside READ COMMITTED — still needed as a secondary
+#      guard for the row-update path (frame_count, gps_path) when two workers
+#      race to extend the same existing segment.
+#
+#   Deadlock / timeout retry is handled in the public process_segment() wrapper.
 
 def _nearest_path_dist(lat, lon, row):
     """Minimum haversine distance from (lat,lon) to any GPS path point in row."""
@@ -180,20 +234,28 @@ def _process_segment_tx(lat, lon, municipality, submunicipality,
     """Single DB transaction: find-or-create a segment. Returns segment_id."""
     lat_delta = MAX_GAP_METERS / 111_320.0
     lon_delta = MAX_GAP_METERS / (111_320.0 * math.cos(math.radians(lat)) + 1e-9)
-    # Wider box (3×) used to catch out-of-order frames that land near the
-    # start or middle of an existing segment, not just its end point.
     lat_wide  = lat_delta * 3
     lon_wide  = lon_delta * 3
     now = datetime.utcnow().isoformat()
 
-    conn = get_conn()
-    cur  = conn.cursor(dictionary=True)
+    lock_keys = _geo_lock_keys(lat, lon)
+    conn      = get_conn()
+    cur       = conn.cursor(dictionary=True)
+    acquired  = []
     try:
+        # Layer 1: advisory locks — prevent phantom inserts from concurrent workers.
+        # Sorted keys are always acquired in the same order → no inter-worker deadlock.
+        for key in lock_keys:
+            cur.execute("SELECT GET_LOCK(%s, 30) AS ok", (key,))
+            if not (cur.fetchone() or {}).get("ok"):
+                raise RuntimeError(f"advisory lock timeout: {key}")
+            acquired.append(key)
+
+        # Layer 2: transactional row lock — safe extension of existing segments.
         conn.start_transaction(isolation_level="READ COMMITTED")
 
         # Primary search: end point within normal radius (indexed, fast path).
-        # Fallback: start point within 3× radius — catches frames that arrive
-        # out of order after concurrent workers already advanced the segment end.
+        # Fallback: start point within 3× radius — catches out-of-order frames.
         cur.execute(
             """SELECT segment_id, start_lat, start_lon, end_lat, end_lon,
                       gps_path, frame_count, municipality, submunicipality,
@@ -217,14 +279,43 @@ def _process_segment_tx(lat, lon, municipality, submunicipality,
         for row in rows:
             _parse_gps_path(row)
             # Match against the nearest point on the path, not just the end —
-            # this correctly identifies segments for out-of-order frames.
+            # correctly handles out-of-order frames.
             dist = _nearest_path_dist(lat, lon, row)
             if dist > MAX_GAP_METERS:
                 continue
-            if not is_stationary and heading is not None:
-                seg_h = _segment_heading(row["gps_path"])
-                if seg_h is not None and heading_delta(seg_h, heading) > TURN_THRESHOLD:
-                    continue
+
+            # Path-computed bearing turn detection.
+            # Gate: only run when the new frame is ≥_BEAR_MIN_DIST from the
+            # segment endpoint.  This tolerates out-of-order deliveries from
+            # concurrent model_call workers — frames that land within 30 m of
+            # the current endpoint are accepted without a bearing check.
+            # Frames from a different road are typically 50–150 m away, so the
+            # gate does not weaken cross-road rejection.
+            path = row["gps_path"]
+            if not is_stationary and len(path) >= 2:
+                ep       = path[-1]
+                ep_dist  = haversine_meters(ep[0], ep[1], lat, lon)
+                recent   = path[-min(_BEAR_RECENT_N, len(path)):]
+                recent_d = haversine_meters(recent[0][0], recent[0][1],
+                                            recent[-1][0], recent[-1][1])
+                if recent_d >= _BEAR_MIN_DIST:
+                    # 1. Bearing check (turn detection) — only reliable when the new
+                    #    frame is far enough from the endpoint for a stable bearing.
+                    #    The _BEAR_MIN_DIST gate tolerates out-of-order deliveries.
+                    if ep_dist >= _BEAR_MIN_DIST:
+                        recent_h    = compute_bearing(recent[0][0], recent[0][1],
+                                                      recent[-1][0], recent[-1][1])
+                        new_bearing = compute_bearing(ep[0], ep[1], lat, lon)
+                        if heading_delta(recent_h, new_bearing) > TURN_THRESHOLD:
+                            continue   # turned → try other candidates
+                    # 2. Cross-track check (parallel-road rejection) — applied regardless
+                    #    of ep_dist; catches lateral jumps that share the same heading.
+                    ctd = cross_track_dist(recent[0][0], recent[0][1],
+                                           recent[-1][0], recent[-1][1],
+                                           lat, lon)
+                    if ctd > MAX_CROSS_TRACK_M:
+                        continue   # lateral jump to parallel road → new segment
+
             if dist < best_dist:
                 best_dist = dist
                 best_seg  = row
@@ -254,20 +345,6 @@ def _process_segment_tx(lat, lon, municipality, submunicipality,
         seg_id = best_seg["segment_id"]
         path   = best_seg["gps_path"]
 
-        # Computed-bearing turn detection (when EXIF heading absent)
-        if not is_stationary and heading is None and len(path) >= 1:
-            prev = path[-1]
-            if prev[0] != lat or prev[1] != lon:
-                computed  = compute_bearing(prev[0], prev[1], lat, lon)
-                seg_h     = _segment_heading(path)
-                if (seg_h is not None
-                        and best_seg.get("frame_count", 0) >= MIN_SEGMENT_FRAMES
-                        and heading_delta(seg_h, computed) > TURN_THRESHOLD):
-                    seg_id = _insert_new_segment(lat, lon)
-                    conn.commit()
-                    logger.info("Turn detected → new segment %s", seg_id)
-                    return seg_id
-
         # Extend matched segment
         if not is_stationary:
             path.append([lat, lon])
@@ -286,6 +363,12 @@ def _process_segment_tx(lat, lon, municipality, submunicipality,
         conn.rollback()
         raise
     finally:
+        for key in acquired:
+            try:
+                cur.execute("SELECT RELEASE_LOCK(%s)", (key,))
+                cur.fetchone()
+            except Exception:
+                pass
         cur.close()
         conn.close()
 
@@ -294,11 +377,11 @@ def process_segment(lat, lon, municipality, submunicipality, image_metadata=None
     """
     GPS-proximity segment detection — order-independent, safe for concurrent replicas.
 
-    Uses a single READ COMMITTED transaction with SELECT … FOR UPDATE so that
-    multiple processing_engine replicas cannot create duplicate segments for
-    the same GPS location simultaneously.
+    Two-layer locking inside _process_segment_tx:
+      1. MySQL GET_LOCK on geographic grid keys — prevents phantom inserts.
+      2. SELECT … FOR UPDATE — serialises extension of existing segment rows.
 
-    Retries automatically on MySQL deadlocks (errno 1213).
+    Retries automatically on deadlocks (errno 1213) and advisory lock timeouts.
     """
     meta = image_metadata or {}
 
@@ -324,6 +407,12 @@ def process_segment(lat, lon, municipality, submunicipality, image_metadata=None
             if e.errno == 1213 and attempt < 2:   # ER_LOCK_DEADLOCK
                 logger.warning("Deadlock in segment detection — retry %d", attempt + 1)
                 time.sleep(0.05 * (attempt + 1))
+                continue
+            raise
+        except RuntimeError as e:
+            if "advisory lock timeout" in str(e) and attempt < 2:
+                logger.warning("Advisory lock contention — retry %d: %s", attempt + 1, e)
+                time.sleep(0.1 * (attempt + 1))
                 continue
             raise
 
@@ -431,31 +520,55 @@ def update_frame_pci(frame_id, score, rating):
 
 def recompute_segment_pci(segment_id):
     """
-    Query all violations in a segment, compute PCI, and update the segment record.
-    Called every time a new frame is processed for the segment so the score stays current.
+    Recompute PCI for a segment using aggregated DB queries.
+
+    Uses GROUP BY instead of fetching every violation row — O(distinct label×severity
+    combos) rather than O(all violations), so cost stays constant regardless of how
+    many frames the segment has accumulated.
     """
     conn = get_conn()
     cur  = conn.cursor(dictionary=True)
     try:
+        # Total distress area per (label, severity) — all that the CDV formula needs.
         cur.execute(
-            """SELECT label, severity, polygon_area_mm2,
-                      image_width, image_height, gsd_mm_per_px, frame_id
+            """SELECT label, severity, SUM(polygon_area_mm2) AS total_area_mm2
                FROM violations
-               WHERE segment_id = %s""",
+               WHERE segment_id = %s
+               GROUP BY label, severity""",
             (segment_id,),
         )
-        viols = cur.fetchall()
+        distress_rows = cur.fetchall()
 
-        score  = compute_segment_pci(viols)
+        # One row per distinct frame — pavement area denominator for density %.
+        cur.execute(
+            """SELECT MAX(image_width)   AS image_width,
+                      MAX(image_height)  AS image_height,
+                      MAX(gsd_mm_per_px) AS gsd_mm_per_px
+               FROM violations
+               WHERE segment_id = %s
+               GROUP BY frame_id""",
+            (segment_id,),
+        )
+        frame_rows = cur.fetchall()
+
+        score  = compute_segment_pci_from_aggregates(distress_rows, frame_rows)
         rating = pci_rating(score)
 
+        # Count violations separately — avoids mysql-connector subquery param binding
+        # issues that silently left violation_count = 0.
+        cur.execute("SELECT COUNT(*) AS cnt FROM violations WHERE segment_id = %s",
+                    (segment_id,))
+        vcount = (cur.fetchone() or {}).get("cnt", 0)
+
         cur.execute(
-            "UPDATE segments SET pci_score=%s, pci_rating=%s WHERE segment_id=%s",
-            (score, rating, segment_id),
+            """UPDATE segments
+               SET pci_score=%s, pci_rating=%s, violation_count=%s
+               WHERE segment_id=%s""",
+            (score, rating, vcount, segment_id),
         )
         conn.commit()
-        logger.info("PCI segment=%s  score=%.1f  rating=%s  violations=%d",
-                    segment_id, score, rating, len(viols))
+        logger.info("PCI segment=%s  score=%.1f  rating=%s  frames=%d",
+                    segment_id, score, rating, len(frame_rows))
         return score, rating
     finally:
         cur.close(); conn.close()
