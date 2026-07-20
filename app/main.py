@@ -229,24 +229,79 @@ def upload():
     return jsonify({"status": "success", "frame_id": frame_id}), 200
 
 
+# ─── GPS path smoothing ────────────────────────────────────────────────────────
+
+def _smooth_path(path: list, window: int = 5) -> list:
+    """Moving-average smooth to remove GPS noise from recorded paths.
+    Each point is replaced by the mean of its neighbours within `window`.
+    Endpoints are kept exact so segment start/end don't drift.
+    """
+    n = len(path)
+    if n < window:
+        return path
+    half = window // 2
+    out  = []
+    for i in range(n):
+        s   = max(0, i - half)
+        e   = min(n, i + half + 1)
+        pts = path[s:e]
+        out.append([
+            sum(p[0] for p in pts) / len(pts),
+            sum(p[1] for p in pts) / len(pts),
+        ])
+    return out
+
+
+def _douglas_peucker(pts: list, eps: float) -> list:
+    """Ramer-Douglas-Peucker path simplification.
+    eps in degrees (~0.00005 ≈ 5 m at Saudi latitudes).
+    """
+    if len(pts) < 3:
+        return pts
+    x1, y1 = pts[0]
+    x2, y2 = pts[-1]
+    dx, dy  = x2 - x1, y2 - y1
+    seg_len = (dx*dx + dy*dy) ** 0.5
+
+    dmax, idx = 0.0, 0
+    for i in range(1, len(pts) - 1):
+        px, py = pts[i]
+        if seg_len > 0:
+            d = abs(dy*px - dx*py + x2*y1 - y2*x1) / seg_len
+        else:
+            d = ((px - x1)**2 + (py - y1)**2) ** 0.5
+        if d > dmax:
+            dmax, idx = d, i
+
+    if dmax > eps:
+        left  = _douglas_peucker(pts[:idx + 1], eps)
+        right = _douglas_peucker(pts[idx:],     eps)
+        return left[:-1] + right
+    return [pts[0], pts[-1]]
+
+
 # ─── Segment query helper ─────────────────────────────────────────────────────
+
+_MIN_FRAMES   = 5        # hide very short stubs
+_MAX_POINTS   = 300      # max GPS points per segment sent to browser
+_SMOOTH_WIN   = 5        # moving-average window for GPS noise removal
+_DP_EPSILON   = 0.00006  # Douglas-Peucker tolerance (~6-7 m)
+
 
 def _fetch_segments_sorted(cur, limit=15000):
     """Two-phase query: sort only the tiny (segment_id, frame_count) rows first,
     then fetch full rows by primary key.  Avoids MySQL sort-buffer overflow when
-    gps_path blobs are large (up to 700 KB each after segment merging).
+    gps_path blobs are large.
 
-    Segments with fewer than 5 frames are excluded — they produce at most 4 GPS
-    points so they render as nearly-straight line stubs that visually appear to
-    cut across non-road areas and add map clutter.
-
-    GPS path resolution: capped at 500 points per segment.  Most segments have
-    ≤ 20 frames and show every point.  For large segments (1000+ frames) step=2
-    keeps ~10 m between displayed points, which follows curved roads faithfully.
+    Path pipeline per segment:
+      1. Parse JSON
+      2. Moving-average smooth  (window=5) → removes GPS noise
+      3. Douglas-Peucker        (eps≈6 m)  → removes collinear points
+      4. Cap at 300 points
     """
     cur.execute(
-        "SELECT segment_id FROM segments WHERE frame_count >= 10 ORDER BY frame_count DESC LIMIT %s",
-        (limit,)
+        "SELECT segment_id FROM segments WHERE frame_count >= %s ORDER BY frame_count DESC LIMIT %s",
+        (_MIN_FRAMES, limit)
     )
     ids = [r["segment_id"] for r in cur.fetchall()]
     if not ids:
@@ -258,7 +313,9 @@ def _fetch_segments_sorted(cur, limit=15000):
                frame_count, violation_count,
                municipality, submunicipality,
                status, created_at, pci_score, pci_rating,
-               length_meters, segment_name
+               length_meters, segment_name,
+               road_type, segment_width_m,
+               health_score, health_condition, health_color
         FROM segments
         WHERE segment_id IN ({fmt})
     """, ids)
@@ -274,14 +331,21 @@ def _fetch_segments_sorted(cur, limit=15000):
                 path = []
         if not isinstance(path, list):
             path = []
-        if len(path) > 500:
-            step = max(1, len(path) // 500)
+
+        # Smooth → simplify → cap
+        if len(path) >= 3:
+            path = _smooth_path(path, _SMOOTH_WIN)
+            path = _douglas_peucker(path, _DP_EPSILON)
+        if len(path) > _MAX_POINTS:
+            step = max(1, len(path) // _MAX_POINTS)
             path = path[::step]
+
         r["gps_path"] = path
         # Decimal → float so json.dumps doesn't choke
-        lm = r.get("length_meters")
-        if lm is not None:
-            r["length_meters"] = float(lm)
+        for fld in ("length_meters", "segment_width_m", "pci_score", "health_score"):
+            v = r.get(fld)
+            if v is not None:
+                r[fld] = float(v)
     id_order = {sid: i for i, sid in enumerate(ids)}
     rows.sort(key=lambda r: id_order.get(r["segment_id"], 999999))
     return rows

@@ -1,0 +1,6 @@
+pika
+boto3
+Pillow
+PyExifTool
+mysql-connector-python
+requests

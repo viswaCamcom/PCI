@@ -1,6 +1,2 @@
 pika
 requests
-boto3
-Pillow
-PyExifTool
-mysql-connector-python

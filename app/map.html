@@ -606,8 +606,8 @@
   <div class="logo">
     <div class="logo-icon">🛣</div>
     <div>
-      <div class="logo-text">PCI Road Monitor</div>
-      <div class="logo-sub">Defect Detection System</div>
+      <div class="logo-text">Pavement Health Monitor</div>
+      <!-- <div class="logo-sub"></div> -->
     </div>
   </div>
   <div class="header-divider"></div>
@@ -652,33 +652,21 @@
       <span class="chip-dot" style="background:var(--pothole)"></span>Pothole
     </button>
     <button class="chip c"       data-group="type" data-label="road_crack">
-      <span class="chip-dot" style="background:var(--crack)"></span>Road Crack
+      <span class="chip-dot" style="background:var(--crack)"></span>Longitudinal Crack
     </button>
   </div>
   <div class="filter-sep"></div>
   <div class="filter-group">
     <span class="filter-label">Road Condition</span>
-    <button class="chip active"           data-group="pci" data-label="all">All</button>
-    <button class="chip pci-excellent"    data-group="pci" data-label="Excellent">
-      <span class="chip-dot" style="background:#16a34a"></span>Excellent
+    <button class="chip active" data-group="pci" data-label="all">All</button>
+    <button class="chip"        data-group="pci" data-label="Good">
+      <span class="chip-dot" style="background:#16a34a"></span>Good
     </button>
-    <button class="chip pci-verygood"     data-group="pci" data-label="Very Good">
-      <span class="chip-dot" style="background:#22c55e"></span>Very Good
+    <button class="chip"        data-group="pci" data-label="Moderate">
+      <span class="chip-dot" style="background:#ea580c"></span>Moderate
     </button>
-    <button class="chip pci-good"         data-group="pci" data-label="Good">
-      <span class="chip-dot" style="background:#84cc16"></span>Good
-    </button>
-    <button class="chip pci-fair"         data-group="pci" data-label="Fair">
-      <span class="chip-dot" style="background:#ca8a04"></span>Fair
-    </button>
-    <button class="chip pci-poor"         data-group="pci" data-label="Poor">
-      <span class="chip-dot" style="background:#ea580c"></span>Poor
-    </button>
-    <button class="chip pci-verypoor"     data-group="pci" data-label="Very Poor">
-      <span class="chip-dot" style="background:#dc2626"></span>Very Poor
-    </button>
-    <button class="chip pci-failed"       data-group="pci" data-label="Failed">
-      <span class="chip-dot" style="background:#7f1d1d"></span>Failed
+    <button class="chip"        data-group="pci" data-label="Poor">
+      <span class="chip-dot" style="background:#dc2626"></span>Poor
     </button>
   </div>
   <div class="filter-sep"></div>
@@ -867,7 +855,7 @@
     if (!label) return "Unknown";
     const n = normLabel(label);
     if (n === "pothole")    return "Pothole";
-    if (n === "road_crack") return "Road Crack";
+    if (n === "road_crack") return "Longitudinal Crack";
     return label.replace(/_/g," ");
   }
   function hexAlpha(hex, a) {
@@ -886,19 +874,35 @@
   }
 
   function segColor(seg) {
-    const v = seg.violation_count || 0;
-    const f = Math.max(seg.frame_count || 1, 1);
-    if (v === 0)        return "#16a34a";   // green  — no violations
-    if (v / f < 0.25)  return "#f97316";   // orange — minimal violations
-    return "#dc2626";                        // red    — heavy violations
+    // Priority 1: stored health_color from calculate_health_score.py
+    const hc = (seg.health_color || "").toLowerCase();
+    if (hc === "green")  return "#16a34a";
+    if (hc === "orange") return "#ea580c";
+    if (hc === "red")    return "#dc2626";
+    // Priority 2: derive from numeric score (health_score or pci_score)
+    // so a segment with score 98 is never coloured orange due to a ratio fallback
+    const score = seg.health_score ?? seg.pci_score;
+    if (score != null) {
+      if (score >= 70) return "#16a34a";   // Good
+      if (score >= 40) return "#ea580c";   // Moderate
+      return "#dc2626";                    // Poor
+    }
+    // Priority 3: no score at all yet — grey
+    return "#94a3b8";
   }
 
   function segLabel(seg) {
-    const v = seg.violation_count || 0;
-    const f = Math.max(seg.frame_count || 1, 1);
-    if (v === 0)       return "No Violations";
-    if (v / f < 0.25)  return "Minimal Violations";
-    return "Heavy Violations";
+    // Priority 1: stored health_condition from calculate_health_score.py
+    if (seg.health_condition) return seg.health_condition;
+    // Priority 2: derive from numeric score so label matches the displayed number
+    const score = seg.health_score ?? seg.pci_score;
+    if (score != null) {
+      if (score >= 70) return "Good";
+      if (score >= 40) return "Moderate";
+      return "Poor";
+    }
+    // Priority 3: no score computed yet
+    return "Pending";
   }
 
   // ── Map init ────────────────────────────────────────────────────────────────
@@ -1035,7 +1039,13 @@
 
   function renderSpList(viols) {
     const list = document.getElementById("sp-list");
-    const filtered = viols;
+    // One card per frame — keep highest-confidence detection (SQL already orders by confidence DESC)
+    const seen = new Set();
+    const filtered = viols.filter(v => {
+      if (seen.has(v.frame_id)) return false;
+      seen.add(v.frame_id);
+      return true;
+    });
 
     if (filtered.length === 0) {
       list.innerHTML = `<div class="sp-empty">
@@ -1106,7 +1116,7 @@
     { key: "longitudinal_crack", label: "Longitudinal Crack", color: "#d97706" },
     { key: "transverse_crack",   label: "Transverse Crack",   color: "#0891b2" },
     { key: "rutting",            label: "Rutting",            color: "#059669" },
-    { key: "road_crack",         label: "Road Crack",         color: "#f59e0b" },
+    { key: "road_crack",         label: "Longitudinal Crack", color: "#f59e0b" },
   ];
 
   function fmtLength(m) {
@@ -1124,34 +1134,38 @@
     const ratio   = vcount / Math.max(seg.frame_count || 1, 1);
     const density = seg.frame_count ? (ratio * 100).toFixed(0) + "%" : "—";
 
-    const score  = seg.pci_score;
-    const healthLabel = segLabel(seg) + " Segment";
+    // Prefer new health score; fall back to ASTM pci_score
+    const score     = seg.health_score  ?? seg.pci_score ?? null;
+    const condition = seg.health_condition || segLabel(seg);
+    const roadType  = seg.road_type ? seg.road_type.replace(/_/g," ") : null;
+    const widthM    = seg.segment_width_m;
 
     document.getElementById("sp-dot").style.background        = color;
     document.getElementById("sp-title-text").textContent      = seg.segment_name || segmentLocationName(seg);
     document.getElementById("sp-location-text").textContent   = segmentLocationName(seg);
     document.getElementById("sp-frames").textContent          = seg.frame_count || 0;
 
-    // PCI badge
+    // Health Score badge
     const scoreEl  = document.getElementById("sp-pci-score");
     const ratingEl = document.getElementById("sp-pci-rating");
     const barEl    = document.getElementById("sp-pci-bar");
     const barLbl   = document.getElementById("sp-pci-bar-label");
     if (score != null) {
-      scoreEl.textContent  = score.toFixed(1);
-      scoreEl.style.color  = color;
-      ratingEl.textContent = rating || "—";
-      ratingEl.style.color = color;
-      barEl.style.width    = score + "%";
+      scoreEl.textContent    = Math.round(score);
+      scoreEl.style.color    = color;
+      ratingEl.textContent   = condition;
+      ratingEl.style.color   = color;
+      barEl.style.width      = Math.round(score) + "%";
       barEl.style.background = color;
-      barLbl.textContent   = "ASTM D6433 · " + score.toFixed(1) + " / 100";
+      const roadInfo = roadType ? ` · ${roadType}${widthM ? " " + widthM + "m" : ""}` : "";
+      barLbl.textContent = "Pavement Health Score · " + Math.round(score) + " / 100" + roadInfo;
     } else {
       scoreEl.textContent  = "—";
       scoreEl.style.color  = "var(--muted)";
       ratingEl.textContent = "Pending";
       ratingEl.style.color = "var(--muted)";
       barEl.style.width    = "0%";
-      barLbl.textContent   = "Score computed after processing";
+      barLbl.textContent   = "Run calculate_health_score.py to compute";
     }
 
     const vcEl = document.getElementById("sp-vcount");
@@ -1504,9 +1518,11 @@
       const line = L.polyline(path.map(p=>[p[0],p[1]]), {
         color, weight: 5, opacity: 0.85, lineCap:"round", lineJoin:"round",
       });
-      const pciLabel = seg.pci_score != null ? `PCI ${seg.pci_score.toFixed(1)} · ` : "";
+      const scoreLabel = seg.health_score != null
+        ? `Score ${seg.health_score} · `
+        : (seg.pci_score != null ? `PCI ${seg.pci_score.toFixed(1)} · ` : "");
       line.bindTooltip(
-        `<b style="color:${color}">${locName}</b><br><span style="color:${color}">${healthLabel}</span> · ${pciLabel}${seg.frame_count} frames · ${vcount} violations<br><span style="color:#6b7a90;font-size:10px">Click to inspect</span>`,
+        `<b style="color:${color}">${locName}</b><br><span style="color:${color}">${healthLabel}</span> · ${scoreLabel}${seg.frame_count} frames · ${vcount} violations<br><span style="color:#6b7a90;font-size:10px">Click to inspect</span>`,
         { sticky:true, className:"seg-tooltip" }
       );
       // Click → open segment panel
@@ -1519,21 +1535,25 @@
       line.on("mouseout",  () => line.setStyle({ weight: isActive?6:7,  opacity: isActive?.8:.95 }));
       line.addTo(map); segLayers.push(line);
 
-      // Only start and end dots (not one per GPS point).
-      // One dot per point × 5000 segments × 80 points = 400 K DOM elements → browser freeze.
-      [[path[0], true], [path[path.length - 1], false]].forEach(([pt, isFirst]) => {
-        if (!pt) return;
-        const dot = L.circleMarker([pt[0], pt[1]], {
-          radius: 5, color: "#0a0e14", fillColor: color, fillOpacity: 1, weight: 2,
+      // Start and end dots — only for segments long enough that the polyline
+      // is clearly visible. Short segments (< 200m) look like just two dots
+      // with no connecting line, which creates visual clutter on dense streets.
+      const lenM = seg.length_meters || 0;
+      if (lenM >= 200) {
+        [[path[0], true], [path[path.length - 1], false]].forEach(([pt, isFirst]) => {
+          if (!pt) return;
+          const dot = L.circleMarker([pt[0], pt[1]], {
+            radius: 5, color: "#0a0e14", fillColor: color, fillOpacity: 1, weight: 2,
+          });
+          dot.on("click", (e) => {
+            L.DomEvent.stopPropagation(e);
+            clearMarkerHighlight();
+            const segViols = allViolations.filter(v => v.segment_id === seg.segment_id);
+            showSegmentPanel(seg, segViols);
+          });
+          dot.addTo(map); segLayers.push(dot);
         });
-        dot.on("click", (e) => {
-          L.DomEvent.stopPropagation(e);
-          clearMarkerHighlight();
-          const segViols = allViolations.filter(v => v.segment_id === seg.segment_id);
-          showSegmentPanel(seg, segViols);
-        });
-        dot.addTo(map); segLayers.push(dot);
-      });
+      }
     });
   }
 
@@ -1669,7 +1689,7 @@
   // ── PCI segment filter helper ───────────────────────────────────────────────
   function filteredSegments() {
     return allSegments.filter(s => {
-      if (activePciFilter       !== "all" && s.pci_rating      !== activePciFilter)       return false;
+      if (activePciFilter !== "all" && (s.health_condition || segLabel(s)) !== activePciFilter) return false;
       if (activeMuniFilter      !== "all" && s.municipality     !== activeMuniFilter)      return false;
       if (activeSubmuniFilter   !== "all" && s.submunicipality  !== activeSubmuniFilter)   return false;
       return true;
@@ -1740,14 +1760,10 @@
   const smpListEl   = document.getElementById("smp-list");
   let smpColorFilter = "all";
 
-  const GREEN_RATINGS  = new Set(["Excellent", "Very Good", "Good"]);
-  const ORANGE_RATINGS = new Set(["Fair", "Poor"]);
-  const RED_RATINGS    = new Set(["Very Poor", "Failed"]);
-
   function smpGroup(seg) {
-    const r = seg.pci_rating || "";
-    if (GREEN_RATINGS.has(r))  return "green";
-    if (ORANGE_RATINGS.has(r)) return "orange";
+    const hc = seg.health_condition || segLabel(seg);
+    if (hc === "Good")     return "green";
+    if (hc === "Moderate") return "orange";
     return "red";
   }
 
@@ -1776,7 +1792,7 @@
     smpListEl.innerHTML = visible.map((seg, i) => {
       const color = segColor(seg);
       const name  = seg.segment_name || `Segment #${seg.segment_id}`;
-      const pci   = seg.pci_score != null ? seg.pci_score.toFixed(1) : "—";
+      const pci   = seg.health_score != null ? seg.health_score : (seg.pci_score != null ? Math.round(seg.pci_score) : "—");
       return `<div class="smp-row" data-smp-idx="${i}">
         <span class="smp-row-dot" style="background:${color}"></span>
         <span class="smp-row-name" title="${name}">${name}</span>
@@ -1789,11 +1805,15 @@
       const seg = visible[idx];
       row.addEventListener("click", () => {
         showSegmentPanel(seg);
-        // Pan map to segment start
         const path = seg.gps_path || [];
         if (path.length > 0) {
           const bounds = L.latLngBounds(path.map(p => [p[0], p[1]]));
-          map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+          // Wait for the right panel to finish opening so Leaflet can
+          // recalculate the map container size before fitting bounds.
+          setTimeout(() => {
+            map.invalidateSize();
+            map.fitBounds(bounds, { padding: [80, 80], maxZoom: 17 });
+          }, 120);
         }
       });
     });

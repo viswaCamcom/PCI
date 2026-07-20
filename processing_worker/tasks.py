@@ -25,8 +25,8 @@ import mysql.connector.pooling
 from mysql.connector import Error as MySQLError
 from PIL import Image, ImageDraw
 
-from pci_calculator import (compute_frame_pci, compute_segment_pci,
-                             compute_segment_pci_from_aggregates, pci_rating)
+from pci_calculator import (compute_frame_pci, compute_segment_health_score,
+                             compute_thresholds, pci_rating, LABEL_TO_TYPE)
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -34,6 +34,79 @@ logging.basicConfig(
     format="%(asctime)s  %(levelname)-8s  %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# ─── Percentile threshold cache (refreshed every hour from DB) ────────────────
+_THRESHOLD_CACHE: dict = {}          # {"pothole": (p25,p50,p75), ...}
+_THRESHOLD_TS:    float = 0.0
+_THRESHOLD_TTL:   int   = 3600       # seconds
+
+# Fallback thresholds from last known batch run (used until first DB refresh)
+_THRESHOLD_DEFAULTS = {
+    "pothole":            (3588,   9518,   27764),
+    "alligator_crack":    (34681,  95725,  266439),
+    "longitudinal_crack": (60581,  169786, 397511),
+}
+
+
+def _get_thresholds() -> dict:
+    global _THRESHOLD_CACHE, _THRESHOLD_TS
+    if _THRESHOLD_CACHE and (time.time() - _THRESHOLD_TS) < _THRESHOLD_TTL:
+        return _THRESHOLD_CACHE
+
+    try:
+        conn = get_conn()
+        cur  = conn.cursor(dictionary=True)
+        try:
+            cur.execute("""
+                SELECT v.segment_id, s.length_meters,
+                    SUM(CASE WHEN v.label = 'pothole'
+                        THEN COALESCE(v.bbox_area_px, GREATEST(0,
+                             (v.bbox_xmax - v.bbox_xmin) * (v.bbox_ymax - v.bbox_ymin)))
+                        ELSE 0 END) AS pot_px,
+                    SUM(CASE WHEN v.label = 'alligator_crack'
+                        THEN COALESCE(v.bbox_area_px, GREATEST(0,
+                             (v.bbox_xmax - v.bbox_xmin) * (v.bbox_ymax - v.bbox_ymin)))
+                        ELSE 0 END) AS alli_px,
+                    SUM(CASE WHEN v.label IN
+                             ('longitudinal_crack','road_crack','transverse_crack','rutting')
+                        THEN COALESCE(v.bbox_area_px, GREATEST(0,
+                             (v.bbox_xmax - v.bbox_xmin) * (v.bbox_ymax - v.bbox_ymin)))
+                        ELSE 0 END) AS lon_px
+                FROM violations v
+                JOIN segments s ON s.segment_id = v.segment_id
+                WHERE s.length_meters > 0
+                GROUP BY v.segment_id, s.length_meters
+            """)
+            rows = cur.fetchall()
+        finally:
+            cur.close(); conn.close()
+
+        pkm_rows = []
+        for r in rows:
+            km = float(r.get("length_meters") or 0) / 1000.0
+            if km <= 0:
+                continue
+            pkm_rows.append({
+                "pot_pkm":  float(r.get("pot_px")  or 0) / km,
+                "alli_pkm": float(r.get("alli_px") or 0) / km,
+                "lon_pkm":  float(r.get("lon_px")  or 0) / km,
+            })
+
+        if pkm_rows:
+            _THRESHOLD_CACHE = compute_thresholds(pkm_rows)
+            _THRESHOLD_TS    = time.time()
+            logger.info("Threshold cache refreshed (%d segments) pot=%s alli=%s lon=%s",
+                        len(pkm_rows),
+                        _THRESHOLD_CACHE["pothole"],
+                        _THRESHOLD_CACHE["alligator_crack"],
+                        _THRESHOLD_CACHE["longitudinal_crack"])
+    except Exception as exc:
+        logger.warning("Threshold refresh failed: %s — using defaults", exc)
+        if not _THRESHOLD_CACHE:
+            _THRESHOLD_CACHE = _THRESHOLD_DEFAULTS
+
+    return _THRESHOLD_CACHE or _THRESHOLD_DEFAULTS
+
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 RABBITMQ_HOST = os.environ.get("RABBITMQ_HOST",    "rabbitmq")
@@ -469,18 +542,23 @@ def save_violations(frame_id, segment_id, results, lat, lon,
                 """INSERT INTO violations
                    (frame_id, segment_id, label, confidence, severity,
                     bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax,
-                    polygon_points, length_mm, breadth_mm,
-                    bbox_area_mm2, polygon_area_mm2,
+                    polygon_points,
+                    length_mm,   breadth_mm,
+                    bbox_area_mm2,  polygon_area_mm2,
+                    length_px,   breadth_px,
+                    bbox_area_px,   polygon_area_px,
                     gsd_mm_per_px, image_width, image_height,
                     latitude, longitude, annotated_image_path, created_at)
-                   VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (frame_id, segment_id,
                  r.get("label"), r.get("confidence"), r.get("severity", "low"),
                  bbox.get("xmin"), bbox.get("ymin"),
                  bbox.get("xmax"), bbox.get("ymax"),
                  json.dumps(r.get("polygon_points", [])),
-                 dims.get("length_mm"), dims.get("breadth_mm"),
-                 area.get("bbox_area_mm2"), area.get("polygon_area_mm2"),
+                 dims.get("length_mm"),  dims.get("breadth_mm"),
+                 area.get("bbox_area_mm2"),  area.get("polygon_area_mm2"),
+                 dims.get("length_px"),  dims.get("breadth_px"),
+                 area.get("bbox_area_px"),   area.get("polygon_area_px"),
                  gsd, image_width, image_height,
                  lat, lon, annotated_path, now),
             )
@@ -520,61 +598,74 @@ def update_frame_pci(frame_id, score, rating):
 
 def recompute_segment_pci(segment_id):
     """
-    Recompute PCI for a segment using aggregated DB queries.
-
-    Uses GROUP BY instead of fetching every violation row — O(distinct label×severity
-    combos) rather than O(all violations), so cost stays constant regardless of how
-    many frames the segment has accumulated.
+    Recompute health score for a segment using the same formula as
+    calculate_health_score.py:
+      px_area / length_km → percentile bucket → weighted penalty → 100 − penalty
     """
     conn = get_conn()
     cur  = conn.cursor(dictionary=True)
     try:
-        # Total distress area per (label, severity) — all that the CDV formula needs.
+        # Segment length
+        cur.execute("SELECT length_meters FROM segments WHERE segment_id = %s",
+                    (segment_id,))
+        seg_row = cur.fetchone()
+        length_km = float((seg_row or {}).get("length_meters") or 0) / 1000.0
+
+        # Total bbox pixel area per distress type (Step 3 input)
         cur.execute(
-            """SELECT label, severity, SUM(polygon_area_mm2) AS total_area_mm2
+            """SELECT label,
+                      SUM(COALESCE(bbox_area_px,
+                          GREATEST(0, (bbox_xmax - bbox_xmin) * (bbox_ymax - bbox_ymin))
+                      )) AS total_px
                FROM violations
                WHERE segment_id = %s
-               GROUP BY label, severity""",
+               GROUP BY label""",
             (segment_id,),
         )
-        distress_rows = cur.fetchall()
+        distress_px: dict = {}
+        for row in cur.fetchall():
+            raw_label = (row.get("label") or "").lower()
+            dtype     = LABEL_TO_TYPE.get(raw_label, "longitudinal_crack")
+            distress_px[dtype] = distress_px.get(dtype, 0.0) + float(row.get("total_px") or 0)
 
-        # One row per distinct frame — pavement area denominator for density %.
-        cur.execute(
-            """SELECT MAX(image_width)   AS image_width,
-                      MAX(image_height)  AS image_height,
-                      MAX(gsd_mm_per_px) AS gsd_mm_per_px
-               FROM violations
-               WHERE segment_id = %s
-               GROUP BY frame_id""",
-            (segment_id,),
-        )
-        frame_rows = cur.fetchall()
-
-        score  = compute_segment_pci_from_aggregates(distress_rows, frame_rows)
-        rating = pci_rating(score)
-
-        # Count violations separately — avoids mysql-connector subquery param binding
-        # issues that silently left violation_count = 0.
+        # Violation count
         cur.execute("SELECT COUNT(*) AS cnt FROM violations WHERE segment_id = %s",
                     (segment_id,))
         vcount = (cur.fetchone() or {}).get("cnt", 0)
 
+        # Compute health score using cached global percentile thresholds
+        thresholds         = _get_thresholds()
+        score, cond, color = compute_segment_health_score(distress_px, length_km, thresholds)
+        rating             = pci_rating(score)
+
         cur.execute(
             """UPDATE segments
-               SET pci_score=%s, pci_rating=%s, violation_count=%s
+               SET pci_score=%s, pci_rating=%s,
+                   health_score=%s, health_condition=%s, health_color=%s,
+                   violation_count=%s
                WHERE segment_id=%s""",
-            (score, rating, vcount, segment_id),
+            (score, rating, score, cond, color, vcount, segment_id),
         )
         conn.commit()
-        logger.info("PCI segment=%s  score=%.1f  rating=%s  frames=%d",
-                    segment_id, score, rating, len(frame_rows))
+        logger.info("Health score segment=%s  score=%d  condition=%s  vcount=%d",
+                    segment_id, score, cond, vcount)
         return score, rating
     finally:
         cur.close(); conn.close()
 
 
 # ─── Message handler ──────────────────────────────────────────────────────────
+
+def delete_frame_violations(frame_id: str):
+    """Remove all existing violation rows for a frame (used before reprocessing)."""
+    conn = get_conn()
+    cur  = conn.cursor()
+    try:
+        cur.execute("DELETE FROM violations WHERE frame_id = %s", (frame_id,))
+        conn.commit()
+    finally:
+        cur.close(); conn.close()
+
 
 def handle_result(channel, method, properties, body):
     try:
@@ -587,6 +678,8 @@ def handle_result(channel, method, properties, body):
         submunicipality = msg.get("submunicipality", "")
         model_response  = msg.get("model_response",  {})
         image_metadata  = msg.get("image_metadata",  {})
+        reprocess       = msg.get("reprocess",       False)
+        seg_id_override = msg.get("segment_id")
 
         results      = model_response.get("results",       [])
         image_width  = model_response.get("image_width",   0)
@@ -595,11 +688,19 @@ def handle_result(channel, method, properties, body):
 
         speed   = image_metadata.get("EXIF:GPSSpeed", "n/a")
         heading = image_metadata.get("EXIF:GPSImgDirection", "n/a")
-        logger.info("frame_id=%s  lat=%s  lon=%s  speed=%s km/h  heading=%s°  detections=%d",
-                    frame_id, lat, lon, speed, heading, len(results))
+        logger.info("frame_id=%s  lat=%s  lon=%s  speed=%s km/h  heading=%s°  detections=%d  reprocess=%s",
+                    frame_id, lat, lon, speed, heading, len(results), reprocess)
 
-        # ── 1. Segment detection (atomic) ─────────────────────────────────────
-        segment_id = process_segment(lat, lon, municipality, submunicipality, image_metadata)
+        # ── 1. Segment detection ──────────────────────────────────────────────
+        # Reprocess mode: use the pre-assigned segment_id from the queue message.
+        # This skips advisory locks and GPS-path extension so processing_engine
+        # workers stay fast and segment data (frame_count, gps_path) is unchanged.
+        if reprocess and seg_id_override:
+            segment_id = seg_id_override
+            # Wipe old violations for this frame before inserting fresh results
+            delete_frame_violations(frame_id)
+        else:
+            segment_id = process_segment(lat, lon, municipality, submunicipality, image_metadata)
 
         # ── 2. Annotate image ─────────────────────────────────────────────────
         annotated_path = None

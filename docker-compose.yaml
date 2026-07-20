@@ -61,13 +61,32 @@ services:
       - "5000:5000"
     volumes:
       - ./downloaded_images:/app/downloaded_images
+      - ./app/map.html:/app/map.html
+      - ./app/main.py:/app/main.py
     depends_on:
       mysql:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
 
-  # ── Model Call Worker ─────────────────────────────────────────────────────────
+  # ── Download Worker — OCI download + EXIF → model_queue ─────────────────────
+  download_worker:
+    build:
+      context: ./download_worker
+      dockerfile: Dockerfile
+    restart: always
+    env_file: .env
+    volumes:
+      - ./downloaded_images:/app/downloaded_images
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      app:
+        condition: service_started
+    deploy:
+      replicas: 20
+
+  # ── Model Call Worker — model_queue → result_queue ───────────────────────────
   model_call:
     build:
       context: ./model_call
@@ -82,7 +101,7 @@ services:
       app:
         condition: service_started
     deploy:
-      replicas: 32
+      replicas: 20
 
   #── Processing Engine Worker ─────────────────────────────────────────────────
   processing_engine:
@@ -101,7 +120,7 @@ services:
       model_call:
         condition: service_started
     deploy:
-      replicas: 3
+      replicas: 12
 
   # ── Streamlit Dashboard ──────────────────────────────────────────────────────
   streamlit:
