@@ -15,12 +15,15 @@ requests at all times.
 import os
 import json
 import logging
+import re
 import threading
 import time
 from datetime import datetime
 
+import boto3
 import pika
-from flask import Flask, request, jsonify, send_from_directory, send_file
+from botocore.config import Config as BotoConfig
+from flask import Flask, request, jsonify, redirect, send_from_directory, send_file
 
 from db_connection import init_db, get_conn
 
@@ -32,10 +35,10 @@ _CACHE: dict = {}
 _CACHE_LOCK = threading.Lock()
 _CACHE_TTL  = 60  # seconds (map JS refreshes every 30 s; 60 s keeps DB hit rate low)
 
-def _get_cached(key: str) -> "bytes | None":
+def _get_cached(key: str, ttl: int = _CACHE_TTL) -> "bytes | None":
     with _CACHE_LOCK:
         entry = _CACHE.get(key)
-        if entry and time.monotonic() - entry["ts"] < _CACHE_TTL:
+        if entry and time.monotonic() - entry["ts"] < ttl:
             return entry["data"]
     return None
 
@@ -61,6 +64,16 @@ app = Flask(__name__)
 # ─── Config ───────────────────────────────────────────────────────────────────
 DOWNLOAD_DIR    = os.environ.get("DOWNLOAD_DIR", "/app/downloaded_images")
 ANNOTATED_DIR   = os.environ.get("ANNOTATED_DIR", "/app/downloaded_images/annotated")
+
+# Annotated images live in object storage; local disk is only a fallback. Reads
+# the canonical names, then the mixed-case spellings first added to .env.
+ANN_S3_BUCKET   = os.environ.get("ANNOTATED_S3_BUCKET")     or os.environ.get("Bucket_name")
+ANN_S3_ENDPOINT = os.environ.get("ANNOTATED_S3_ENDPOINT")   or os.environ.get("S3_endpoint")
+ANN_S3_KEY      = os.environ.get("ANNOTATED_S3_ACCESS_KEY") or os.environ.get("Access_Key_ID")
+ANN_S3_SECRET   = os.environ.get("ANNOTATED_S3_SECRET_KEY") or os.environ.get("Secret_Access_Key")
+ANN_S3_PREFIX   = os.environ.get("ANNOTATED_S3_PREFIX", "annotated").strip("/")
+ANN_URL_TTL     = int(os.environ.get("ANNOTATED_URL_TTL", 3600))
+ANN_S3_ENABLED  = all([ANN_S3_BUCKET, ANN_S3_ENDPOINT, ANN_S3_KEY, ANN_S3_SECRET])
 RABBITMQ_HOST   = os.environ.get("RABBITMQ_HOST", "rabbitmq")
 RABBITMQ_PORT   = int(os.environ.get("RABBITMQ_PORT", 5672))
 RABBITMQ_USER   = os.environ.get("RABBITMQ_USER", "admin")
@@ -288,6 +301,44 @@ _SMOOTH_WIN   = 5        # moving-average window for GPS noise removal
 _DP_EPSILON   = 0.00006  # Douglas-Peucker tolerance (~6-7 m)
 
 
+def _process_gps_path(raw_path):
+    """Parse a stored gps_path (JSON string/bytes/list) and apply the
+    smooth -> simplify -> cap pipeline used for map rendering:
+      1. Parse JSON
+      2. Moving-average smooth  (window=5) -> removes GPS noise
+      3. Douglas-Peucker        (eps~6 m)  -> removes collinear points
+      4. Cap at 300 points
+    Shared by /api/segments and /api/mbs/segments.
+    """
+    path = raw_path
+    if isinstance(path, (bytes, bytearray)):
+        path = path.decode()
+    if isinstance(path, str):
+        try:
+            path = json.loads(path)
+        except Exception:
+            path = []
+    if not isinstance(path, list):
+        path = []
+    # Smoothing and Douglas-Peucker exist purely to make an oversized path
+    # (thousands of dense GPS points) cheap to render — they have no benefit
+    # on a path that's already small, and can actively hurt it: DP measures
+    # deviation from the straight line between a path's two endpoints, which
+    # is a meaningless reference on a short, tightly-curved segment (e.g. an
+    # interchange loop) — it happily collapses a real loop down to 2-3 points
+    # (start/apex/end), which renders as straight chords cutting across the
+    # inside of the curve instead of following it. Below _MAX_POINTS there's
+    # no rendering-cost reason to simplify at all, so skip both steps and use
+    # the raw path as-is; only paths that actually need capping go through it.
+    if len(path) > _MAX_POINTS:
+        path = _smooth_path(path, _SMOOTH_WIN)
+        path = _douglas_peucker(path, _DP_EPSILON)
+        if len(path) > _MAX_POINTS:
+            step = max(1, len(path) // _MAX_POINTS)
+            path = path[::step]
+    return path
+
+
 def _fetch_segments_sorted(cur, limit=15000):
     """Two-phase query: sort only the tiny (segment_id, frame_count) rows first,
     then fetch full rows by primary key.  Avoids MySQL sort-buffer overflow when
@@ -321,26 +372,7 @@ def _fetch_segments_sorted(cur, limit=15000):
     """, ids)
     rows = cur.fetchall()
     for r in rows:
-        path = r.get("gps_path")
-        if isinstance(path, (bytes, bytearray)):
-            path = path.decode()
-        if isinstance(path, str):
-            try:
-                path = json.loads(path)
-            except Exception:
-                path = []
-        if not isinstance(path, list):
-            path = []
-
-        # Smooth → simplify → cap
-        if len(path) >= 3:
-            path = _smooth_path(path, _SMOOTH_WIN)
-            path = _douglas_peucker(path, _DP_EPSILON)
-        if len(path) > _MAX_POINTS:
-            step = max(1, len(path) // _MAX_POINTS)
-            path = path[::step]
-
-        r["gps_path"] = path
+        r["gps_path"] = _process_gps_path(r.get("gps_path"))
         # Decimal → float so json.dumps doesn't choke
         for fld in ("length_meters", "segment_width_m", "pci_score", "health_score"):
             v = r.get(fld)
@@ -577,10 +609,284 @@ def api_segments():
         cur.close(); conn.close()
 
 
+@app.get("/api/mbs/segments")
+def api_mbs_segments():
+    """
+    Frozen Makkah<->Jeddah corridor segments (see freeze_mbs_segments.py).
+    Unlike /api/segments, this data never changes between reprocessing runs —
+    cached with a much longer TTL since there's no benefit to refreshing it
+    on the same 60s cadence as live, frequently-changing data.
+    """
+    cached = _get_cached("mbs_segments", ttl=3600)
+    if cached is not None:
+        return _json_response(cached)
+
+    conn = get_conn()
+    cur  = conn.cursor(dictionary=True)
+    try:
+        cur.execute("""
+            SELECT mbs_segment_id, segment_name, municipality, submunicipality,
+                   start_lat, start_lon, end_lat, end_lon, gps_path,
+                   length_meters, road_type, segment_width_m
+            FROM mbs_segments
+        """)
+        rows = cur.fetchall()
+        for r in rows:
+            r["gps_path"] = _process_gps_path(r.get("gps_path"))
+            if r.get("length_meters") is not None:
+                r["length_meters"] = float(r["length_meters"])
+            if r.get("segment_width_m") is not None:
+                r["segment_width_m"] = float(r["segment_width_m"])
+        _set_cached("mbs_segments", rows)
+        return _json_response(_get_cached("mbs_segments", ttl=3600))
+    finally:
+        cur.close(); conn.close()
+
+
+@app.get("/api/mbs/dates")
+def api_mbs_dates():
+    """Distinct capture dates with computed scores, ascending — powers the date filter."""
+    cached = _get_cached("mbs_dates", ttl=3600)
+    if cached is not None:
+        return _json_response(cached)
+
+    conn = get_conn()
+    cur  = conn.cursor(dictionary=True)
+    try:
+        cur.execute("SELECT DISTINCT capture_date FROM mbs_segment_scores ORDER BY capture_date ASC")
+        payload = {"dates": [str(r["capture_date"]) for r in cur.fetchall()]}
+        _set_cached("mbs_dates", payload)
+        return _json_response(_get_cached("mbs_dates", ttl=3600))
+    finally:
+        cur.close(); conn.close()
+
+
+@app.get("/api/mbs/segment-dates")
+def api_mbs_segment_dates():
+    """
+    Distinct capture dates for ONE segment — powers the compare modal's date
+    pickers, since a given segment may only have data for a subset of the
+    corridor's overall dates. Required: ?segment_id=
+    """
+    segment_id = request.args.get("segment_id", "")
+    if not segment_id:
+        return jsonify({"status": "error", "message": "segment_id required"}), 400
+
+    cache_key = f"mbs_segment_dates:{segment_id}"
+    cached = _get_cached(cache_key, ttl=3600)
+    if cached is not None:
+        return _json_response(cached)
+
+    conn = get_conn()
+    cur  = conn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            "SELECT DISTINCT capture_date FROM mbs_segment_scores WHERE mbs_segment_id = %s ORDER BY capture_date ASC",
+            (segment_id,),
+        )
+        payload = {"dates": [str(r["capture_date"]) for r in cur.fetchall()]}
+        _set_cached(cache_key, payload)
+        return _json_response(_get_cached(cache_key, ttl=3600))
+    finally:
+        cur.close(); conn.close()
+
+
+@app.get("/api/mbs/segment-violations")
+def api_mbs_segment_violations():
+    """
+    Violations for one frozen segment on one capture date — feeds the segment
+    detail panel's defect breakdown + violation list, same shape as
+    /api/violations?segment_id= but joined through mbs_frame_segment_map
+    (violations.segment_id itself isn't stable for MBS — it gets reassigned
+    by offline_resegment.py — only violations.frame_id is). Not cached: same
+    precedent as the existing per-segment violations lookup.
+    Required: ?segment_id=&date=YYYY-MM-DD
+    """
+    segment_id = request.args.get("segment_id", "")
+    date       = request.args.get("date", "")
+    if not segment_id or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        return jsonify({"status": "error", "message": "segment_id and date (YYYY-MM-DD) required"}), 400
+
+    conn = get_conn()
+    cur  = conn.cursor(dictionary=True)
+    try:
+        cur.execute("""
+            SELECT v.id, v.frame_id, m.mbs_segment_id AS segment_id,
+                   v.label, v.confidence, v.severity,
+                   v.bbox_xmin, v.bbox_ymin, v.bbox_xmax, v.bbox_ymax,
+                   v.length_mm, v.breadth_mm,
+                   v.latitude, v.longitude,
+                   v.polygon_area_mm2
+            FROM violations v
+            JOIN mbs_frame_segment_map m ON m.frame_id = v.frame_id
+            WHERE m.mbs_segment_id = %s AND m.capture_date = %s
+            ORDER BY v.confidence DESC
+        """, (segment_id, date))
+        return jsonify(cur.fetchall())
+    finally:
+        cur.close(); conn.close()
+
+
+@app.get("/api/mbs/scores")
+def api_mbs_scores():
+    """Per-segment health scores for one capture date. Required: ?date=YYYY-MM-DD."""
+    date = request.args.get("date", "")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        return jsonify({"status": "error", "message": "date must be YYYY-MM-DD"}), 400
+
+    cache_key = f"mbs_scores:{date}"
+    cached = _get_cached(cache_key, ttl=3600)
+    if cached is not None:
+        return _json_response(cached)
+
+    conn = get_conn()
+    cur  = conn.cursor(dictionary=True)
+    try:
+        cur.execute("""
+            SELECT s.mbs_segment_id, seg.segment_name, s.capture_date,
+                   s.frame_count, s.violation_count,
+                   s.pothole_count, s.alligator_count, s.longitudinal_count,
+                   s.health_score, s.health_condition, s.health_color
+            FROM mbs_segment_scores s
+            JOIN mbs_segments seg ON seg.mbs_segment_id = s.mbs_segment_id
+            WHERE s.capture_date = %s
+        """, (date,))
+        rows = cur.fetchall()
+        _set_cached(cache_key, rows)
+        return _json_response(_get_cached(cache_key, ttl=3600))
+    finally:
+        cur.close(); conn.close()
+
+
+@app.get("/api/mbs/compare")
+def api_mbs_compare():
+    """
+    Two-date comparison for one frozen segment. Not cached — low-frequency,
+    user-triggered action, same precedent as /api/violations?segment_id=.
+    Required: ?segment_id=&date_a=YYYY-MM-DD&date_b=YYYY-MM-DD
+    """
+    segment_id = request.args.get("segment_id", "")
+    date_a     = request.args.get("date_a", "")
+    date_b     = request.args.get("date_b", "")
+    if not segment_id or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_a) \
+                       or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_b):
+        return jsonify({"status": "error", "message": "segment_id, date_a, date_b (YYYY-MM-DD) required"}), 400
+
+    conn = get_conn()
+    cur  = conn.cursor(dictionary=True)
+    try:
+        cur.execute("SELECT * FROM mbs_segments WHERE mbs_segment_id = %s", (segment_id,))
+        seg = cur.fetchone()
+        if not seg:
+            return jsonify({"status": "error", "message": "segment not found"}), 404
+        seg["gps_path"] = _process_gps_path(seg.get("gps_path"))
+
+        def _score_for(d):
+            cur.execute(
+                "SELECT * FROM mbs_segment_scores WHERE mbs_segment_id=%s AND capture_date=%s",
+                (segment_id, d),
+            )
+            return cur.fetchone()
+
+        return jsonify({
+            "segment": seg,
+            "date_a": {"date": date_a, "score": _score_for(date_a)},
+            "date_b": {"date": date_b, "score": _score_for(date_b)},
+        })
+    finally:
+        cur.close(); conn.close()
+
+
+@app.get("/api/mbs/geometry")
+def api_mbs_geometry():
+    """OSM reference centerline for the corridor overlay — static, display-only."""
+    path = os.path.join(os.path.dirname(__file__), "static", "mbs_road_geometry.geojson")
+    if not os.path.exists(path):
+        return jsonify({"status": "error", "message": "geometry not fetched yet — run fetch_mbs_road_geometry.py"}), 404
+    return send_file(path, mimetype="application/geo+json")
+
+
+# ─── Annotated images in object storage ───────────────────────────────────────
+# The annotated JPEGs live in a bucket rather than on the app's disk, so a fresh
+# deployment serves them without a 13 GB file copy. /api/image redirects the
+# browser to a presigned URL — the bytes go straight from object storage to the
+# client instead of being proxied through Flask.
+
+_s3_client = None
+_s3_lock   = threading.Lock()
+
+# frame_id -> (exists: bool, checked_at: float). A HEAD per image request would
+# double latency, so results are cached; negatives expire sooner so a frame
+# annotated after its first miss starts resolving without a restart.
+_ann_exists       = {}
+_ann_lock         = threading.Lock()
+_ANN_TTL_HIT      = 3600
+_ANN_TTL_MISS     = 60
+_ANN_CACHE_MAX    = 200_000
+
+
+def get_s3():
+    global _s3_client
+    if _s3_client is None:
+        with _s3_lock:
+            if _s3_client is None:
+                _s3_client = boto3.client(
+                    "s3",
+                    endpoint_url          = ANN_S3_ENDPOINT,
+                    aws_access_key_id     = ANN_S3_KEY,
+                    aws_secret_access_key = ANN_S3_SECRET,
+                    # OCI rejects the aws-chunked encoding boto3 >= 1.36 adds by
+                    # default; opt back out of the trailing-checksum behaviour.
+                    config = BotoConfig(
+                        signature_version            = "s3v4",
+                        request_checksum_calculation = "when_required",
+                        response_checksum_validation = "when_required",
+                        max_pool_connections         = 32,
+                    ),
+                )
+    return _s3_client
+
+
+def annotated_in_s3(frame_id):
+    key = f"{ANN_S3_PREFIX}/{frame_id}.jpg"
+    now = time.time()
+
+    with _ann_lock:
+        hit = _ann_exists.get(frame_id)
+        if hit and now - hit[1] < (_ANN_TTL_HIT if hit[0] else _ANN_TTL_MISS):
+            return key if hit[0] else None
+
+    try:
+        get_s3().head_object(Bucket=ANN_S3_BUCKET, Key=key)
+        found = True
+    except Exception:
+        found = False
+
+    with _ann_lock:
+        # Cheap bound: the map works a fixed corridor, so this rarely trips.
+        if len(_ann_exists) > _ANN_CACHE_MAX:
+            _ann_exists.clear()
+        _ann_exists[frame_id] = (found, now)
+
+    return key if found else None
+
+
 @app.get("/api/image/<frame_id>")
 def api_image(frame_id):
-    """Serve annotated image (falls back to original) as JPEG."""
+    """Redirect to the annotated image in object storage; fall back to disk."""
     try:
+        if ANN_S3_ENABLED:
+            key = annotated_in_s3(frame_id)
+            if key:
+                url = get_s3().generate_presigned_url(
+                    "get_object",
+                    Params    = {"Bucket": ANN_S3_BUCKET, "Key": key},
+                    ExpiresIn = ANN_URL_TTL,
+                )
+                return redirect(url, code=302)
+
+        # Local disk: still authoritative on the machine that produced the
+        # images, and the only source for frames with no annotation yet.
         annotated = os.path.join(ANNOTATED_DIR, f"{frame_id}.jpg")
         original  = os.path.join(DOWNLOAD_DIR,  f"{frame_id}.jpg")
         if os.path.exists(annotated):

@@ -20,6 +20,18 @@ venv/
 # Logs and upload tracking
 *.log
 pci_uploaded_done.txt
+*_uploaded_done.txt
+*_failed_ids.txt
+*.bak
+*.bak[0-9]
+*.bak_*
+reprocess_checkpoint.txt
+
+# Bulk frame CSVs — inputs and reports, not source. The two that carry
+# frame_id -> image_bucket/image_key mappings (016001_municipality_frames.csv,
+# 016001_retry.csv) are backed up to s3://pci-bucket/mappings/ instead; they are
+# the only way to re-fetch 208k orphaned originals, so do not delete them.
+/*.csv
 
 # macOS
 .DS_Store
@@ -27,3 +39,9 @@ pci_uploaded_done.txt
 # Docker volumes / data
 mysql_data/
 rabbitmq_data/
+
+# DB dumps and generated id lists produced by deploy/copy_to_vm.sh
+deploy/dump/
+
+# Local agent config
+.claude/

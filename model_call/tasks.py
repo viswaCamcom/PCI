@@ -32,9 +32,16 @@ RABBITMQ_PASS = os.environ.get("RABBITMQ_PASS", "mypass")
 
 MODEL_QUEUE  = "model_queue"
 RESULT_QUEUE = "result_queue"
+FAILED_QUEUE = "model_queue_failed"
 
 MODEL_URL     = os.environ.get("MODEL_URL", "http://10.0.1.187:8010/detect/predict-pci")
 MODEL_TIMEOUT = int(os.environ.get("MODEL_TIMEOUT", 120))
+
+# A frame whose model call keeps 500-ing (bad image, unsupported input, etc.)
+# used to requeue forever, cycling between workers and burning most of the
+# fleet's capacity on messages that will never succeed. Cap retries and park
+# anything past the limit in FAILED_QUEUE so it stops blocking real work.
+MODEL_MAX_RETRIES = int(os.environ.get("MODEL_MAX_RETRIES", 3))
 
 
 # ─── Model call ───────────────────────────────────────────────────────────────
@@ -87,16 +94,41 @@ def publish_result(channel, payload: dict):
     logger.info("frame_id=%s → result_queue", payload.get("frame_id"))
 
 
+def republish_to_model_queue(channel, message: dict):
+    channel.queue_declare(queue=MODEL_QUEUE, durable=True)
+    channel.basic_publish(
+        exchange    = "",
+        routing_key = MODEL_QUEUE,
+        body        = json.dumps(message).encode(),
+        properties  = pika.BasicProperties(delivery_mode=2),
+    )
+
+
+def publish_to_failed_queue(channel, message: dict, error: str):
+    channel.queue_declare(queue=FAILED_QUEUE, durable=True)
+    message["_error"] = error
+    channel.basic_publish(
+        exchange    = "",
+        routing_key = FAILED_QUEUE,
+        body        = json.dumps(message).encode(),
+        properties  = pika.BasicProperties(delivery_mode=2),
+    )
+    logger.error("frame_id=%s → %s after %d attempts — giving up",
+                 message.get("frame_id"), FAILED_QUEUE, message.get("_retry_count", 0))
+
+
 # ─── Message handler ──────────────────────────────────────────────────────────
 
 def handle_frame(channel, method, properties, body):
     frame_id = None
+    message  = {}
     try:
         message    = json.loads(body)
         frame_id   = message.get("frame_id")
         image_path = message.get("image_path")
+        retry_count = message.get("_retry_count", 0)
 
-        logger.info("Received frame_id=%s", frame_id)
+        logger.info("Received frame_id=%s (attempt %d/%d)", frame_id, retry_count + 1, MODEL_MAX_RETRIES)
 
         if not image_path or not os.path.exists(image_path):
             logger.error("image_path missing or not on disk for frame_id=%s — dropping", frame_id)
@@ -123,8 +155,16 @@ def handle_frame(channel, method, properties, body):
         channel.basic_ack(delivery_tag=method.delivery_tag)
 
     except requests.exceptions.RequestException as e:
-        logger.error("Model API failed frame_id=%s: %s — requeue", frame_id, e)
-        channel.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+        retry_count = message.get("_retry_count", 0)
+        if retry_count + 1 >= MODEL_MAX_RETRIES:
+            publish_to_failed_queue(channel, {**message, "_retry_count": retry_count + 1}, str(e))
+        else:
+            logger.warning("Model API failed frame_id=%s: %s — retry %d/%d",
+                            frame_id, e, retry_count + 1, MODEL_MAX_RETRIES)
+            republish_to_model_queue(channel, {**message, "_retry_count": retry_count + 1})
+        # Original delivery is always resolved here — retries happen via a
+        # fresh republish above, never via requeue=True, so the count sticks.
+        channel.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
     except Exception as e:
         logger.exception("Unexpected error frame_id=%s: %s", frame_id, e)
@@ -142,6 +182,7 @@ def main():
             channel = conn.channel()
             channel.queue_declare(queue=MODEL_QUEUE,  durable=True)
             channel.queue_declare(queue=RESULT_QUEUE, durable=True)
+            channel.queue_declare(queue=FAILED_QUEUE, durable=True)
             channel.basic_qos(prefetch_count=2)
             channel.basic_consume(queue=MODEL_QUEUE, on_message_callback=handle_frame)
             logger.info("Waiting for frames...")

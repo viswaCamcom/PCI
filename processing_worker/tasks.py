@@ -19,9 +19,13 @@ import logging
 import time
 from datetime import datetime
 
+import threading
+
+import boto3
 import pika
 import mysql.connector
 import mysql.connector.pooling
+from botocore.config import Config as BotoConfig
 from mysql.connector import Error as MySQLError
 from PIL import Image, ImageDraw
 
@@ -117,6 +121,19 @@ RESULT_QUEUE  = "result_queue"
 
 DOWNLOAD_DIR  = os.environ.get("DOWNLOAD_DIR",  "/app/downloaded_images")
 ANNOTATED_DIR = os.environ.get("ANNOTATED_DIR", "/app/downloaded_images/annotated")
+
+# Annotated images are uploaded to object storage so the Flask app can serve
+# them without sharing this worker's disk. Canonical names first, then the
+# mixed-case spellings originally added to .env.
+ANN_S3_BUCKET   = os.environ.get("ANNOTATED_S3_BUCKET")     or os.environ.get("Bucket_name")
+ANN_S3_ENDPOINT = os.environ.get("ANNOTATED_S3_ENDPOINT")   or os.environ.get("S3_endpoint")
+ANN_S3_KEY      = os.environ.get("ANNOTATED_S3_ACCESS_KEY") or os.environ.get("Access_Key_ID")
+ANN_S3_SECRET   = os.environ.get("ANNOTATED_S3_SECRET_KEY") or os.environ.get("Secret_Access_Key")
+ANN_S3_PREFIX   = os.environ.get("ANNOTATED_S3_PREFIX", "annotated").strip("/")
+ANN_S3_ENABLED  = all([ANN_S3_BUCKET, ANN_S3_ENDPOINT, ANN_S3_KEY, ANN_S3_SECRET])
+# Keep the local copy after uploading? Off by default — not holding 13 GB on
+# disk is the whole point of moving these to a bucket.
+ANN_KEEP_LOCAL  = os.environ.get("ANNOTATED_KEEP_LOCAL", "0") == "1"
 
 TURN_THRESHOLD     = 30.0   # degrees — city roads cross at 30–45°; tighter catches more
 SMOOTH_WINDOW      = 3      # GPS points used to derive segment heading
@@ -492,13 +509,50 @@ def process_segment(lat, lon, municipality, submunicipality, image_metadata=None
 
 # ─── Annotation drawing ───────────────────────────────────────────────────────
 
+_ann_s3      = None
+_ann_s3_lock = threading.Lock()
+
+
+def get_ann_s3():
+    global _ann_s3
+    if _ann_s3 is None:
+        with _ann_s3_lock:
+            if _ann_s3 is None:
+                _ann_s3 = boto3.client(
+                    "s3",
+                    endpoint_url          = ANN_S3_ENDPOINT,
+                    aws_access_key_id     = ANN_S3_KEY,
+                    aws_secret_access_key = ANN_S3_SECRET,
+                    # OCI rejects the aws-chunked encoding boto3 >= 1.36 sends by
+                    # default; opt back out of the trailing-checksum behaviour.
+                    config = BotoConfig(
+                        signature_version            = "s3v4",
+                        request_checksum_calculation = "when_required",
+                        response_checksum_validation = "when_required",
+                    ),
+                )
+    return _ann_s3
+
+
+def upload_annotated(path, frame_id):
+    """Upload one annotated JPEG. Returns the key, or None if it failed."""
+    key = f"{ANN_S3_PREFIX}/{frame_id}.jpg"
+    try:
+        with open(path, "rb") as fh:
+            get_ann_s3().put_object(Bucket=ANN_S3_BUCKET, Key=key,
+                                    Body=fh.read(), ContentType="image/jpeg")
+        return key
+    except Exception as exc:
+        logger.error("upload_annotated %s failed: %s", frame_id, exc)
+        return None
+
+
 def draw_annotations(image_path, results, frame_id):
     img  = Image.open(image_path).convert("RGB")
     draw = ImageDraw.Draw(img, "RGBA")
 
     for det in results:
         label   = det.get("label", "unknown")
-        conf    = det.get("confidence", 0)
         bbox    = det.get("bounding_box", {})
         polygon = det.get("polygon_points", [])
         color   = get_color(label)
@@ -512,7 +566,7 @@ def draw_annotations(image_path, results, frame_id):
             x0, y0 = bbox.get("xmin", 0), bbox.get("ymin", 0)
             x1, y1 = bbox.get("xmax", 0), bbox.get("ymax", 0)
             draw.rectangle([x0, y0, x1, y1], outline=color, width=3)
-            text   = f"{label} {conf:.0%}"
+            text   = label
             tx, ty = x0, max(y0 - 20, 0)
             tw     = len(text) * 7 + 8
             draw.rectangle([tx, ty, tx + tw, ty + 18], fill=color)
@@ -520,6 +574,21 @@ def draw_annotations(image_path, results, frame_id):
 
     out_path = os.path.join(ANNOTATED_DIR, f"{frame_id}.jpg")
     img.save(out_path, "JPEG", quality=90)
+
+    if ANN_S3_ENABLED:
+        key = upload_annotated(out_path, frame_id)
+        if key:
+            if not ANN_KEEP_LOCAL:
+                try:
+                    os.remove(out_path)
+                except OSError:
+                    pass
+            logger.info("Annotated image → s3://%s/%s", ANN_S3_BUCKET, key)
+            return key
+        # Upload failed — keep the local file so the app's disk fallback still
+        # has something to serve, and so a later push can retry it.
+        logger.warning("S3 upload failed for %s — keeping local copy", frame_id)
+
     logger.info("Annotated image → %s", out_path)
     return out_path
 

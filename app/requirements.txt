@@ -2,3 +2,4 @@ flask
 pika
 mysql-connector-python
 gunicorn
+boto3

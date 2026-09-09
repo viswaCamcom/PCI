@@ -18,6 +18,8 @@ Usage:
     python3 pci_api_upload.py --csv riyadh_ids.csv --dry-run
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 import logging

@@ -55,6 +55,8 @@
     .stat-card.medium .stat-value { color: var(--seg-medium); }
     .stat-card.low    .stat-value { color: var(--seg-low); }
     .stat-card.segs   .stat-value { color: var(--accent); }
+    .stat-card.segs   { cursor: pointer; }
+    .stat-card.segs.active { border-color: var(--accent); background: #fff; }
     .live-badge {
       margin-left: auto; display:flex; align-items:center; gap:6px;
       font-size: 11px; color: var(--muted); flex-shrink: 0;
@@ -308,6 +310,19 @@
     .sp-list {
       flex: 1; overflow-y: auto; padding: 12px 14px;
     }
+    /* ── MBS Corridor: inline date-compare (bottom of segment panel) ─────────── */
+    #sp-mbs-compare { padding: 14px 18px; border-top: 1px solid var(--border); flex-shrink:0; }
+    .sp-mbs-compare-btn {
+      width: 100%; padding: 9px; border-radius: 10px; border: 1.5px dashed var(--border);
+      background: #f8fafc; color: var(--accent); font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .sp-mbs-compare-btn:hover { background: #f1f5f9; }
+    .sp-mbs-picker { display: flex; gap: 8px; margin-top: 10px; }
+    .sp-mbs-picker select { flex: 1; }
+    .sp-mbs-picker button {
+      padding: 6px 14px; border-radius: 8px; border: none; background: var(--accent);
+      color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink:0;
+    }
     .sp-empty {
       display: flex; flex-direction: column; align-items: center;
       justify-content: center; height: 200px; gap: 10px;
@@ -464,9 +479,17 @@
     #submuni-panel.open { display:flex; }
     .smp-header {
       padding:14px 16px 10px; border-bottom:1px solid var(--border); flex-shrink:0;
+      position:relative;
     }
-    .smp-title { font-size:13px; font-weight:700; color:var(--text); }
+    .smp-title { font-size:13px; font-weight:700; color:var(--text); padding-right:26px; }
     .smp-count { font-size:11px; color:var(--muted); margin-top:2px; }
+    .smp-close {
+      position:absolute; top:12px; right:12px;
+      width:24px; height:24px; border-radius:50%; border:1px solid var(--border);
+      background:#f8fafc; cursor:pointer; font-size:12px; color:var(--muted); line-height:1;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .smp-close:hover { background:#f1f5f9; color:var(--text); }
     .smp-tabs {
       display:flex; gap:5px; padding:8px 12px;
       border-bottom:1px solid var(--border); flex-shrink:0;
@@ -490,6 +513,218 @@
     .smp-row-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
     .smp-row-name { flex:1; font-size:12px; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .smp-row-pci { font-size:11px; font-weight:800; }
+
+    /* ── MBS Corridor: avg-PCI summary block (segment list panel + compare dock) ── */
+    .smp-mbs-summary { padding:10px 16px 14px; border-bottom:1px solid var(--border); flex-shrink:0; }
+    .mcs-region { font-size:11px; color:var(--muted); margin-bottom:8px; display:flex; align-items:center; gap:5px; }
+    .mcs-avg-row { display:flex; align-items:baseline; gap:8px; }
+    .mcs-avg-score { font-size:28px; font-weight:900; line-height:1; }
+    .mcs-avg-label { font-size:11px; color:var(--muted); font-weight:600; }
+    .mcs-total { font-size:12px; color:var(--text); font-weight:700; margin-top:6px; }
+    .mcs-section-label {
+      font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase;
+      letter-spacing:.06em; margin-top:14px; margin-bottom:6px;
+    }
+    .mcs-colorbar { display:flex; height:8px; border-radius:6px; overflow:hidden; background:#e5e7eb; }
+    .mcs-color-seg { height:100%; }
+    .mcs-color-legend { display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:6px; font-size:10px; color:var(--muted); }
+    .mcs-color-legend span { display:flex; align-items:center; gap:4px; }
+    .mcs-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; display:inline-block; }
+    .mcs-distress { display:flex; flex-direction:column; gap:5px; }
+    .mcs-distress-row { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--text); font-weight:500; }
+    .mcs-distress-val { margin-left:auto; font-weight:800; font-family:"SF Mono","Fira Code",monospace; }
+
+    /* .mcm-empty is shared with buildMbsFullColumn's "no data" state in the
+       still-used per-segment compare dock (#mbs-compare-dock) below. */
+    .mcm-empty { text-align:center; color:var(--muted); font-size:12px; padding:24px 0; }
+
+    /* ── MBS Corridor: two-panel date-comparison dock ─────────────────────────── */
+    #mbs-compare-dock {
+      display:none; position:fixed; top:0; right:0; bottom:0;
+      width:820px; max-width:96vw;
+      background:#fff; border-left:1px solid var(--border);
+      box-shadow:-6px 0 32px rgba(0,0,0,.10);
+      z-index:9985; flex-direction:column; overflow:hidden;
+    }
+    #mbs-compare-dock.open { display:flex; }
+    .mcd-header {
+      flex-shrink:0; display:flex; align-items:center; gap:14px;
+      padding:14px 16px; border-bottom:1px solid var(--border);
+    }
+    .mcd-header-title { font-size:14px; font-weight:800; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .mcd-header-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; row-gap:6px; flex:1; min-width:0; }
+    .mcd-header-controls select { max-width:150px; }
+    .mcd-vs { font-size:11px; font-weight:700; color:var(--muted); flex-shrink:0; }
+    #mcd-close {
+      flex-shrink:0; width:30px; height:30px; border-radius:50%; border:1px solid var(--border);
+      background:#fff; cursor:pointer; font-size:14px; color:var(--muted);
+      display:flex; align-items:center; justify-content:center;
+    }
+    #mcd-close:hover { background:#f8fafc; color:var(--text); }
+    .mcd-panels { flex:1; display:flex; overflow:hidden; min-height:0; }
+    .mcd-panel { flex:1; overflow-y:auto; border-right:1px solid var(--border); display:flex; flex-direction:column; }
+    .mcd-panel:last-child { border-right:none; }
+    .mcd-summary {
+      flex-shrink:0; background:#0f172a; color:#fff; padding:14px 24px;
+      font-size:12px; line-height:1.6; text-align:center;
+    }
+    .mcd-summary b { color:#fff; }
+    .mcd-summary .up   { color:#4ade80; }
+    .mcd-summary .down { color:#f87171; }
+
+    /* ── MBS Corridor: whole-corridor month-vs-month dock (reuses .mcd-header /
+       .mcd-panels / .mcd-panel classes above — only the outer box differs) ──── */
+    #mbs-corridor-compare-dock {
+      display:none; position:fixed; top:0; right:0; bottom:0;
+      width:820px; max-width:96vw;
+      background:#fff; border-left:1px solid var(--border);
+      box-shadow:-6px 0 32px rgba(0,0,0,.10);
+      z-index:9985; flex-direction:column; overflow:hidden;
+    }
+    #mbs-corridor-compare-dock.open { display:flex; }
+    #mccd-download-btn { flex-shrink:0; white-space:nowrap; }
+
+    /* ── PDF export: browser print → "Save as PDF" renders just this dock ──── */
+    @media print {
+      body * { visibility:hidden; }
+      #mbs-corridor-compare-dock, #mbs-corridor-compare-dock * { visibility:visible; }
+      /* visibility:hidden (unlike display:none) still reserves layout space —
+         every hidden element before this dock in the DOM would otherwise push
+         it down the page, leaving a blank first page. position:absolute pulls
+         it out of that flow and pins it to the top of the printed page. */
+      #mbs-corridor-compare-dock {
+        position:absolute; left:0; top:0; right:auto; bottom:auto;
+        width:100%; max-width:none; height:auto;
+        box-shadow:none; border:none; display:block !important; overflow:visible;
+      }
+      /* The interactive dock (header controls, two-column live view, segment
+         list) is on-screen-only — print shows only #mccd-report below. */
+      .mcd-header, .mcd-panels { display:none !important; }
+      /* On screen this sits position:absolute off in the margin (so its live
+         Leaflet maps still get real layout to size tiles against) — for print
+         it needs to rejoin normal flow at full width like everything else. */
+      #mccd-report {
+        position:static !important; left:auto !important; top:auto !important; width:100% !important;
+      }
+      /* Chrome strips background colors by default when printing — this
+         report's tinted verdict box and pills need them kept. */
+      #mccd-report, #mccd-report * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    }
+
+    /* ── MBS Corridor: per-column mini map (interactive dock preview) ────────── */
+    .mccd-mini-map {
+      height:200px; margin:10px 16px 4px; border-radius:8px;
+      border:1px solid var(--border); background:#eef2f6;
+    }
+
+    /* ── MBS Corridor: print-only comparison report ──────────────────────────
+       Everything here is scoped under #mccd-report (prefixed pcr-) so it can't
+       collide with the rest of the app's CSS. Colors reuse the app's existing
+       tokens (--text/--muted/--border/--accent, and the same green/orange/red/
+       distress hues used everywhere else in this file) rather than a separate
+       palette, per feedback to keep this looking like the rest of the app.
+
+       display:none would leave the Leaflet maps below sized 0x0 at render time
+       (they're created while the report is still off-screen, long before print
+       happens) — position:absolute + a huge negative left keeps it out of the
+       user's view while still given real layout, so Leaflet can size tiles
+       correctly. Print CSS below switches it back to position:static/normal
+       flow and the 'beforeprint' handler re-fits the maps to their real width. */
+    #mccd-report {
+      position:absolute; left:-9999px; top:0; width:900px;
+      background:var(--surface); color:var(--text); line-height:1.5;
+    }
+    #mccd-report .pcr-wrap { max-width:1080px; margin:0 auto; padding:0 20px; }
+    #mccd-report .pcr-mono { font-family:"SF Mono","JetBrains Mono",ui-monospace,"Menlo",monospace; }
+
+    #mccd-report header { padding:16px 0 12px; border-bottom:1px solid var(--border); }
+    #mccd-report .pcr-eyebrow {
+      font-size:10px; letter-spacing:.2em; text-transform:uppercase;
+      color:var(--accent); font-weight:700; margin-bottom:8px;
+      display:flex; align-items:center; gap:10px;
+    }
+    #mccd-report .pcr-eyebrow::before { content:""; width:28px; height:2px; background:var(--accent); }
+    #mccd-report h1 {
+      color:var(--text); font-size:22px; line-height:1.1;
+      font-weight:800; letter-spacing:-.02em; max-width:26ch; margin:0;
+    }
+    #mccd-report .pcr-sub { margin-top:6px; color:var(--muted); font-size:12px; max-width:60ch; }
+    #mccd-report .pcr-meta-row { margin-top:10px; display:flex; flex-wrap:wrap; gap:6px; }
+    #mccd-report .pcr-chip {
+      font-size:10px; color:var(--muted); border:1px solid var(--border);
+      border-radius:20px; padding:4px 10px; background:var(--surface2);
+    }
+    #mccd-report .pcr-chip b { color:var(--text); font-weight:600; }
+
+    #mccd-report .pcr-verdict {
+      background:var(--accent-dim); border:1px solid var(--border);
+      border-radius:10px; padding:10px 16px; display:flex; align-items:center;
+      gap:16px; flex-wrap:wrap; margin:10px 0;
+    }
+    #mccd-report .pcr-verdict .pcr-delta { font-size:26px; font-weight:800; line-height:1; }
+    #mccd-report .pcr-verdict .pcr-delta.pcr-good { color:var(--seg-clean); }
+    #mccd-report .pcr-verdict .pcr-delta.pcr-bad  { color:var(--seg-high); }
+    #mccd-report .pcr-verdict .pcr-delta.pcr-flat { color:var(--muted); }
+    #mccd-report .pcr-verdict .pcr-delta .pcr-u { font-size:15px; color:var(--muted); font-weight:600; margin-left:2px; }
+    #mccd-report .pcr-verdict .pcr-arrow { font-weight:800; font-size:18px; }
+    #mccd-report .pcr-verdict .pcr-arrow.pcr-good { color:var(--seg-clean); }
+    #mccd-report .pcr-verdict .pcr-arrow.pcr-bad  { color:var(--seg-high); }
+    #mccd-report .pcr-verdict .pcr-arrow.pcr-flat { color:var(--muted); }
+    #mccd-report .pcr-verdict .pcr-vtext { color:var(--text); font-size:12px; max-width:56ch; }
+
+    #mccd-report main { padding:4px 0 10px; }
+
+    #mccd-report table.pcr-cmp { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+    #mccd-report table.pcr-cmp thead th {
+      text-align:right; padding:0 0 8px; font-size:9px; letter-spacing:.1em;
+      text-transform:uppercase; color:var(--muted); font-weight:700;
+      border-bottom:2px solid var(--text);
+    }
+    #mccd-report table.pcr-cmp thead th.pcr-metric { text-align:left; }
+    #mccd-report .pcr-colhd { display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
+    #mccd-report .pcr-colhd .pcr-dt { font-size:12px; font-family:ui-monospace,monospace; color:var(--text); font-weight:700; }
+
+    #mccd-report table.pcr-cmp tbody th { text-align:left; font-weight:600; font-size:11px; padding:6px 0; color:var(--text); }
+    #mccd-report table.pcr-cmp tbody th .pcr-u { display:block; font-size:9px; color:var(--muted); font-weight:400; margin-top:1px; }
+    #mccd-report table.pcr-cmp td { text-align:right; padding:6px 0 6px 20px; font-size:13px; font-weight:700; color:var(--text); }
+    #mccd-report table.pcr-cmp td.pcr-d1 { color:var(--muted); font-weight:600; }
+    #mccd-report table.pcr-cmp tbody tr { border-bottom:1px solid var(--border); }
+    #mccd-report .pcr-sectionrow th {
+      padding:10px 0 4px !important; font-size:9px; letter-spacing:.16em;
+      text-transform:uppercase; color:var(--muted); font-weight:700; border:0;
+    }
+    #mccd-report .pcr-sectionrow { border-bottom:0 !important; }
+
+    #mccd-report .pcr-chg { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:700; justify-content:flex-end; white-space:nowrap; }
+    #mccd-report .pcr-chg .pcr-pct { font-size:9px; color:var(--muted); font-weight:600; }
+    #mccd-report .pcr-chg.pcr-bad  { color:var(--seg-high); }
+    #mccd-report .pcr-chg.pcr-good { color:var(--seg-clean); }
+    #mccd-report .pcr-chg.pcr-flat { color:var(--muted); }
+    #mccd-report td.pcr-delta { min-width:110px; }
+
+    #mccd-report tr.pcr-scorerow td { font-size:19px; font-weight:800; letter-spacing:-.02em; }
+    #mccd-report tr.pcr-scorerow th { font-size:12px; }
+
+    #mccd-report .pcr-cbar {
+      display:inline-flex; height:8px; width:90px; border-radius:4px; overflow:hidden;
+      border:1px solid var(--border); vertical-align:middle; margin-left:10px;
+    }
+    #mccd-report .pcr-cbar span { display:block; height:100%; }
+
+    #mccd-report .pcr-maps { margin-top:10px; }
+    #mccd-report .pcr-mapgrid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    #mccd-report .pcr-mapcard { border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--surface); }
+    #mccd-report .pcr-mapcard .pcr-mh {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:6px 12px; border-bottom:1px solid var(--border); background:var(--surface2);
+    }
+    #mccd-report .pcr-mapcard .pcr-mh .pcr-dt { font-family:ui-monospace,monospace; font-weight:700; font-size:12px; color:var(--text); }
+    #mccd-report .pcr-map-frame { height:150px; background:#eef2f6; }
+    #mccd-report .pcr-mapcap { padding:5px 12px; font-size:9px; color:var(--muted); font-family:ui-monospace,monospace; }
+
+    #mccd-report footer { border-top:1px solid var(--border); padding:8px 0; margin-top:4px; font-size:10px; color:var(--muted); }
+    #mccd-report footer .pcr-row { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+    #mccd-report footer .pcr-mono { color:var(--text); }
 
     /* ── Segment name chip in panel header ──────────────────────────────────── */
     .sp-seg-name-row {
@@ -657,6 +892,15 @@
   </div>
   <div class="filter-sep"></div>
   <div class="filter-group">
+    <button class="chip" id="toggle-violation-dots" title="Show/hide violation markers on the map">
+      <span class="chip-dot" style="background:var(--pothole)"></span>Violation Dots
+    </button>
+    <button class="chip" id="toggle-no-violation-dots" title="Show/hide grey dots for frames with no detected violations">
+      <span class="chip-dot" style="background:#c5cfd9"></span>No-Violation Dots
+    </button>
+  </div>
+  <div class="filter-sep"></div>
+  <div class="filter-group">
     <span class="filter-label">Road Condition</span>
     <button class="chip active" data-group="pci" data-label="all">All</button>
     <button class="chip"        data-group="pci" data-label="Good">
@@ -681,6 +925,14 @@
     <select class="filter-select" id="filter-submuni" disabled>
       <option value="all">All Sub-municipalities</option>
     </select>
+  </div>
+  <div class="filter-sep"></div>
+  <div class="filter-group">
+    <button class="chip" id="mbs-toggle" type="button">Makkah–Jeddah Corridor</button>
+    <select class="filter-select" id="mbs-date-select" disabled>
+      <option value="">Select date…</option>
+    </select>
+    <button class="chip" id="mbs-corridor-compare-btn" type="button" disabled>Compare segments</button>
   </div>
 </div>
 
@@ -784,6 +1036,13 @@
     <div id="sp-breakdown-rows"></div>
   </div>
   <div class="sp-list" id="sp-list"></div>
+  <div id="sp-mbs-compare" style="display:none">
+    <button class="sp-mbs-compare-btn" id="sp-mbs-compare-btn">Compare with another date</button>
+    <div class="sp-mbs-picker" id="sp-mbs-picker" style="display:none">
+      <select class="filter-select" id="sp-mbs-compare-date"></select>
+      <button id="sp-mbs-compare-show-btn">Show</button>
+    </div>
+  </div>
 </div>
 
 <!-- ── Hover card (violation quick-peek on mouseover) ───────────────────────── -->
@@ -814,9 +1073,11 @@
 <!-- ── Sub-municipality segment list panel ──────────────────────────────── -->
 <div id="submuni-panel">
   <div class="smp-header">
+    <button class="smp-close" id="smp-close" title="Close">✕</button>
     <div class="smp-title" id="smp-title">Segments</div>
     <div class="smp-count" id="smp-count"></div>
   </div>
+  <div class="smp-mbs-summary" id="smp-mbs-summary" style="display:none"></div>
   <div class="smp-tabs">
     <button class="smp-tab active" data-smp="all">All</button>
     <button class="smp-tab" data-smp="green">Green</button>
@@ -824,6 +1085,49 @@
     <button class="smp-tab" data-smp="red">Red</button>
   </div>
   <div class="smp-list" id="smp-list"></div>
+</div>
+
+<!-- ── MBS Corridor: two full segment panels docked side by side for date
+     comparison, plus a delta summary bar along the bottom ─────────────────── -->
+<div id="mbs-compare-dock">
+  <div class="mcd-header">
+    <div class="mcd-header-title" id="mcd-seg-name">—</div>
+    <div class="mcd-header-controls">
+      <select class="filter-select" id="mcd-date-1"></select>
+      <span class="mcd-vs">vs</span>
+      <select class="filter-select" id="mcd-date-2"></select>
+    </div>
+    <button id="mcd-close" title="Close (Esc)">✕</button>
+  </div>
+  <div class="mcd-panels">
+    <div class="mcd-panel" id="mcd-panel-a"></div>
+    <div class="mcd-panel" id="mcd-panel-b"></div>
+  </div>
+  <div class="mcd-summary" id="mcd-summary"></div>
+</div>
+
+<!-- ── MBS Corridor: whole-corridor date-vs-date comparison, side by side
+     (avg PCI + full segment list per side, not just one segment) ───────────── -->
+<div id="mbs-corridor-compare-dock">
+  <div class="mcd-header">
+    <div class="mcd-header-title" id="mccd-title">Makkah–Jeddah Corridor · Date Comparison</div>
+    <div class="mcd-header-controls">
+      <button class="chip active" id="mccd-mode-date"  type="button">By Date</button>
+      <button class="chip"        id="mccd-mode-month" type="button">By Month</button>
+      <select class="filter-select" id="mccd-date-1"></select>
+      <span class="mcd-vs">vs</span>
+      <select class="filter-select" id="mccd-date-2"></select>
+    </div>
+    <button class="chip" id="mccd-download-btn" type="button" title="Download this comparison as a PDF">⬇ Download PDF</button>
+    <button id="mccd-close" title="Close (Esc)">✕</button>
+  </div>
+  <div class="mcd-panels">
+    <div class="mcd-panel" id="mccd-panel-a"></div>
+    <div class="mcd-panel" id="mccd-panel-b"></div>
+  </div>
+  <!-- Print-only report — hidden on screen, this is what "Download PDF"
+       actually renders. Interactive dock above stays as-is for browsing. -->
+  <div id="mccd-report"></div>
 </div>
 
 <!-- ── Lightbox ───────────────────────────────────────────────────────────── -->
@@ -838,7 +1142,10 @@
 
 
 <script>
-  const API = "http://localhost:5000";
+  // This page is served by the Flask app itself, and every API path below is
+  // same-origin — so derive the base from the browser URL instead of hardcoding
+  // a host. Works unchanged on localhost, on any VM IP, or behind a proxy.
+  const API = window.location.origin;
   const CRACK_LABELS = ["longitudinal_crack","transverse_crack","alligator_crack","rutting","road_crack"];
 
   function normLabel(label) {
@@ -914,8 +1221,25 @@
 
   let allViolations=[], allFrames=[], allSegments=[], segLayers=[], markerList=[], frameMarkerList=[];
   let activeTypeFilter="all", activeSevFilter="all", activePciFilter="all";
+  let showViolationMarkers = false;
+  let showNoViolationFrames = false;
   let activeMuniFilter="all", activeSubmuniFilter="all";
   let initialBoundsDone = false;
+
+  // ── MBS Corridor (frozen segments + date comparison) ──────────────────────
+  let mbsMode = false, allMbsSegments = [], mbsDates = [], mbsScoresByDate = {};
+  let mbsMonths = [], mbsDatesByMonth = {};   // "By Month" mode buckets mbsDates by calendar month
+  const MONTH_NAMES = ["January","February","March","April","May","June",
+                        "July","August","September","October","November","December"];
+  function monthKeyOf(dateStr)  { return dateStr.slice(0, 7); }               // "2026-01-05" -> "2026-01"
+  function monthLabel(monthKey) {
+    const [y, m] = monthKey.split("-").map(Number);
+    return `${MONTH_NAMES[m - 1]} ${y}`;
+  }
+  const mbsLayerGroup = L.layerGroup();
+  const mbsGeometryLayerGroup = L.layerGroup();  // OSM reference overlay — separate group so
+                                                    // switching dates (which clears mbsLayerGroup)
+                                                    // never has to re-fetch/re-draw it
 
   function fmtCount(n) {
     if (n == null) return "—";
@@ -1061,7 +1385,6 @@
       const color  = getColor(v.label);
       const sev    = (v.severity || "low").toLowerCase();
       const sevCls = sev === "high" ? "badge-high" : sev === "medium" ? "badge-medium" : "badge-low";
-      const conf   = (v.confidence * 100).toFixed(1);
       return `<div class="sp-vcard" data-sp-vindex="${i}">
         <div class="sp-vcard-top">
           <span class="sp-vcard-dot" style="background:${color}"></span>
@@ -1069,8 +1392,6 @@
           <span class="sp-vcard-sev ${sevCls}">${sev}</span>
         </div>
         <div class="sp-vcard-meta">
-          <span><b>${conf}%</b> confidence</span>
-          <span>Frame <b>${v.frame_id}</b></span>
           ${v.length_mm ? `<span><b>${v.length_mm.toFixed(0)}mm</b></span>` : ""}
         </div>
         <div class="sp-vcard-img" data-sp-imgidx="${i}">
@@ -1223,6 +1544,7 @@
     spCurrentViolations = [];
     renderSpList([]);
 
+    document.getElementById("sp-mbs-compare").style.display = "none";
     segPanel.classList.add("open");
     hideClickPopup();
     highlightSegmentMarkers(seg.segment_id);
@@ -1266,6 +1588,393 @@
       })
       .catch(() => { /* panel already shows correct counts — list just stays empty */ });
   }
+
+  // ── MBS Corridor: segment detail panel (reuses #seg-panel's exact layout,
+  //    populated from frozen-segment + per-date score data instead of the
+  //    live violations join, plus an inline "compare with another date"
+  //    control appended at the bottom) ─────────────────────────────────────────
+  let currentMbsPanelSeg  = null;
+  let currentMbsPanelDate = null;
+
+  function showMbsSegmentPanel(seg) {
+    const date  = document.getElementById("mbs-date-select").value;
+    const score = (mbsScoresByDate[date] || []).find(r => r.mbs_segment_id === seg.mbs_segment_id) || {};
+    const merged = { ...seg, ...score };
+    currentMbsPanelSeg  = seg;
+    currentMbsPanelDate = date;
+
+    const color   = segColor(merged);
+    const vcount  = merged.violation_count || 0;
+    const ratio   = vcount / Math.max(merged.frame_count || 1, 1);
+    const density = merged.frame_count ? (ratio * 100).toFixed(0) + "%" : "—";
+    const score_  = merged.health_score ?? null;
+    const condition = merged.health_condition || segLabel(merged);
+    const roadType  = merged.road_type ? merged.road_type.replace(/_/g, " ") : null;
+    const widthM    = merged.segment_width_m;
+
+    document.getElementById("sp-dot").style.background      = color;
+    document.getElementById("sp-title-text").textContent    = merged.segment_name || segmentLocationName(merged);
+    document.getElementById("sp-location-text").textContent = (date ? date + " · " : "") + segmentLocationName(merged);
+    document.getElementById("sp-frames").textContent        = merged.frame_count || 0;
+
+    const scoreEl  = document.getElementById("sp-pci-score");
+    const ratingEl = document.getElementById("sp-pci-rating");
+    const barEl    = document.getElementById("sp-pci-bar");
+    const barLbl   = document.getElementById("sp-pci-bar-label");
+    if (score_ != null) {
+      scoreEl.textContent    = Math.round(score_);
+      scoreEl.style.color    = color;
+      ratingEl.textContent   = condition;
+      ratingEl.style.color   = color;
+      barEl.style.width      = Math.round(score_) + "%";
+      barEl.style.background = color;
+      const roadInfo = roadType ? ` · ${roadType}${widthM ? " " + widthM + "m" : ""}` : "";
+      barLbl.textContent = "Pavement Health Score · " + Math.round(score_) + " / 100" + roadInfo;
+    } else {
+      scoreEl.textContent  = "—";
+      scoreEl.style.color  = "var(--muted)";
+      ratingEl.textContent = "No data for this date";
+      ratingEl.style.color = "var(--muted)";
+      barEl.style.width    = "0%";
+      barLbl.textContent   = "This segment has no frames captured on " + (date || "the selected date");
+    }
+
+    const vcEl = document.getElementById("sp-vcount");
+    vcEl.textContent = vcount;
+    vcEl.className   = "sp-kpi-value " + (vcount === 0 ? "success" : ratio < 0.25 ? "warning" : "danger");
+    document.getElementById("sp-density").textContent = density;
+    document.getElementById("sp-density").className   = "sp-kpi-value " + (vcount === 0 ? "success" : "warning");
+
+    const path     = merged.gps_path || [];
+    const startLat = merged.start_lat ?? path[0]?.[0];
+    const startLon = merged.start_lon ?? path[0]?.[1];
+    const endLat   = merged.end_lat   ?? path[path.length - 1]?.[0];
+    const endLon   = merged.end_lon   ?? path[path.length - 1]?.[1];
+    const fmt      = v => v != null ? Number(v).toFixed(6) : "—";
+    document.getElementById("sp-start-lat").textContent = fmt(startLat);
+    document.getElementById("sp-start-lon").textContent = fmt(startLon);
+    document.getElementById("sp-end-lat").textContent   = fmt(endLat);
+    document.getElementById("sp-end-lon").textContent   = fmt(endLon);
+    document.getElementById("sp-frames-detected").textContent = "";
+
+    const stretchEl    = document.getElementById("sp-stretch");
+    const stretchSubEl = document.getElementById("sp-stretch-sub");
+    const lenM = merged.length_meters || null;
+    stretchEl.textContent    = fmtLength(lenM);
+    stretchEl.className      = "sp-kpi-value info";
+    stretchSubEl.textContent = lenM ? "along GPS path (frozen)" : "";
+
+    document.getElementById("sp-seg-name-row").style.display = "none";
+
+    const rowsEl = document.getElementById("sp-breakdown-rows");
+    const wrapEl = document.getElementById("sp-breakdown");
+    wrapEl.style.display = "none";
+    spCurrentViolations = [];
+    renderSpList([]);
+
+    // Reset the inline compare control back to its collapsed state each time
+    // a (possibly different) segment/date is opened.
+    document.getElementById("sp-mbs-compare").style.display = "block";
+    document.getElementById("sp-mbs-picker").style.display  = "none";
+    document.getElementById("sp-mbs-compare-btn").style.display = "block";
+
+    segPanel.classList.add("open");
+    hideClickPopup();
+
+    if (!date) return;  // no data anywhere for this segment yet — nothing to fetch
+
+    fetch(`${API}/api/mbs/segment-violations?segment_id=${encodeURIComponent(seg.mbs_segment_id)}&date=${encodeURIComponent(date)}`)
+      .then(r => r.json())
+      .then(segViolations => {
+        const typeCounts = {};
+        segViolations.forEach(v => {
+          const k = (v.label || "unknown").toLowerCase();
+          typeCounts[k] = (typeCounts[k] || 0) + 1;
+        });
+        const present = DEFECT_TYPES.filter(t => typeCounts[t.key] > 0);
+        if (present.length > 0) {
+          const maxCount = Math.max(...present.map(t => typeCounts[t.key]));
+          rowsEl.innerHTML = present.map(t => {
+            const cnt = typeCounts[t.key];
+            const pct = Math.round((cnt / maxCount) * 100);
+            return `<div class="sp-brow">
+              <span class="sp-brow-dot" style="background:${t.color}"></span>
+              <span class="sp-brow-label">${t.label}</span>
+              <div class="sp-brow-bar-track">
+                <div class="sp-brow-bar-fill" style="width:${pct}%;background:${t.color}"></div>
+              </div>
+              <span class="sp-brow-count" style="color:${t.color}">${cnt}</span>
+            </div>`;
+          }).join("");
+          wrapEl.style.display = "block";
+        }
+        spCurrentViolations = segViolations;
+        renderSpList(segViolations);
+      })
+      .catch(() => { /* panel already shows correct counts — list just stays empty */ });
+  }
+
+  document.getElementById("sp-mbs-compare-btn").addEventListener("click", async () => {
+    if (!currentMbsPanelSeg) return;
+    document.getElementById("sp-mbs-compare-btn").style.display = "none";
+    const picker = document.getElementById("sp-mbs-picker");
+    picker.style.display = "flex";
+    const dateSel = document.getElementById("sp-mbs-compare-date");
+    const res  = await fetch(`${API}/api/mbs/segment-dates?segment_id=${encodeURIComponent(currentMbsPanelSeg.mbs_segment_id)}`);
+    const data = await res.json();
+    const dates = (data.dates || []).filter(d => d !== currentMbsPanelDate);
+    dateSel.innerHTML = dates.map(d => `<option value="${d}">${d}</option>`).join("")
+                         || `<option value="">No other dates</option>`;
+  });
+
+  // Opens the shared lightbox for an image click inside a comparison column,
+  // scoped to that column's own violation list (so prev/next only cycles
+  // through the images actually shown in that date's column).
+  function wireMbsPanelImages(panelEl, filteredViolations) {
+    panelEl.querySelectorAll(".sp-vcard-img[data-idx]").forEach(imgWrap => {
+      const idx = parseInt(imgWrap.dataset.idx, 10);
+      imgWrap.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openLightboxAt(idx, filteredViolations);
+      });
+    });
+  }
+
+  // Builds one full segment-panel-style column (colored dot + name + date,
+  // PCI score badge with bar, all 4 KPI tiles, coordinates, defect breakdown,
+  // and violation image cards) — reuses the exact same .sp-* classes as the
+  // single-segment #seg-panel so a comparison column looks identical to the
+  // normal detail view, just duplicated for two dates side by side.
+  // Returns {html, filtered} — filtered is the deduped violation list actually
+  // rendered as image cards, in the same order, so the caller can wire up
+  // lightbox clicks with correct indices after inserting the HTML.
+  function buildMbsFullColumn(seg, dateLabel, scoreEntry, violations) {
+    const s = scoreEntry?.score;
+    const locName = segmentLocationName(seg);
+
+    if (!s) {
+      return { filtered: [], html: `<div class="sp-header">
+        <div class="sp-title-row"><div class="sp-title">
+          <span class="sp-health-dot" style="background:var(--muted)"></span>
+          <span>${seg.segment_name || locName}</span>
+        </div></div>
+        <div class="sp-location"><span>${dateLabel} · ${locName}</span></div>
+      </div>
+      <div class="mcm-empty" style="padding:40px 20px">No data for this date</div>` };
+    }
+
+    const merged  = { ...seg, ...s };
+    const color   = segColor(merged);
+    const vcount  = s.violation_count || 0;
+    const ratio   = vcount / Math.max(s.frame_count || 1, 1);
+    const density = s.frame_count ? (ratio * 100).toFixed(0) + "%" : "—";
+    const condition = s.health_condition || segLabel(merged);
+
+    const typeCounts = {};
+    (violations || []).forEach(v => {
+      const k = (v.label || "unknown").toLowerCase();
+      typeCounts[k] = (typeCounts[k] || 0) + 1;
+    });
+    const present = DEFECT_TYPES.filter(t => typeCounts[t.key] > 0);
+    let breakdownHtml = "";
+    if (present.length > 0) {
+      const maxCount = Math.max(...present.map(t => typeCounts[t.key]));
+      breakdownHtml = `<div class="sp-breakdown" style="display:block">
+        <div class="sp-breakdown-title">Detections by Type</div>
+        <div>${present.map(t => {
+          const cnt = typeCounts[t.key];
+          const pct = Math.round((cnt / maxCount) * 100);
+          return `<div class="sp-brow">
+            <span class="sp-brow-dot" style="background:${t.color}"></span>
+            <span class="sp-brow-label">${t.label}</span>
+            <div class="sp-brow-bar-track"><div class="sp-brow-bar-fill" style="width:${pct}%;background:${t.color}"></div></div>
+            <span class="sp-brow-count" style="color:${t.color}">${cnt}</span>
+          </div>`;
+        }).join("")}</div>
+      </div>`;
+    }
+
+    const seen = new Set();
+    const filtered = (violations || []).filter(v => {
+      if (seen.has(v.frame_id)) return false;
+      seen.add(v.frame_id);
+      return true;
+    });
+    const vcardsHtml = filtered.length === 0
+      ? `<div class="sp-empty" style="height:auto;padding:24px 0"><span>No violations detected</span></div>`
+      : filtered.map((v, i) => {
+          const vcolor = getColor(v.label);
+          const sev    = (v.severity || "low").toLowerCase();
+          const sevCls = sev === "high" ? "badge-high" : sev === "medium" ? "badge-medium" : "badge-low";
+          return `<div class="sp-vcard">
+            <div class="sp-vcard-top">
+              <span class="sp-vcard-dot" style="background:${vcolor}"></span>
+              <span class="sp-vcard-label">${displayLabel(v.label)}</span>
+              <span class="sp-vcard-sev ${sevCls}">${sev}</span>
+            </div>
+            <div class="sp-vcard-meta">
+              ${v.length_mm ? `<span><b>${v.length_mm.toFixed(0)}mm</b></span>` : ""}
+            </div>
+            <div class="sp-vcard-img" data-idx="${i}">
+              <img src="${API}/api/image/${v.frame_id}" alt="" loading="lazy" onerror="this.parentElement.style.display='none'"/>
+            </div>
+          </div>`;
+        }).join("");
+
+    const html = `
+      <div class="sp-header">
+        <div class="sp-title-row">
+          <div class="sp-title">
+            <span class="sp-health-dot" style="background:${color}"></span>
+            <span>${seg.segment_name || locName}</span>
+          </div>
+        </div>
+        <div class="sp-location">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+          </svg>
+          <span>${dateLabel} · ${locName}</span>
+        </div>
+        <div class="sp-pci-wrap">
+          <div class="sp-pci-score" style="color:${color}">${Math.round(s.health_score)}</div>
+          <div class="sp-pci-sep"></div>
+          <div class="sp-pci-meta">
+            <span class="sp-pci-label">PCI Score</span>
+            <span class="sp-pci-rating" style="color:${color}">${condition}</span>
+          </div>
+          <div class="sp-pci-bar-wrap">
+            <div class="sp-pci-bar-track"><div class="sp-pci-bar-fill" style="width:${Math.round(s.health_score)}%;background:${color}"></div></div>
+            <div class="sp-pci-bar-label">Pavement Health Score · ${Math.round(s.health_score)} / 100</div>
+          </div>
+        </div>
+        <div class="sp-kpis" style="margin-top:10px">
+          <div class="sp-kpi">
+            <span class="sp-kpi-label">Frames</span>
+            <span class="sp-kpi-value info">${s.frame_count ?? 0}</span>
+          </div>
+          <div class="sp-kpi">
+            <span class="sp-kpi-label">Violations</span>
+            <span class="sp-kpi-value ${vcount === 0 ? "success" : ratio < 0.25 ? "warning" : "danger"}">${vcount}</span>
+          </div>
+          <div class="sp-kpi">
+            <span class="sp-kpi-label">Density</span>
+            <span class="sp-kpi-value ${vcount === 0 ? "success" : "warning"}">${density}</span>
+          </div>
+          <div class="sp-kpi">
+            <span class="sp-kpi-label">Road Stretch</span>
+            <span class="sp-kpi-value info">${fmtLength(seg.length_meters)}</span>
+          </div>
+        </div>
+        <div class="sp-coords">
+          <div class="sp-coord-item">
+            <span class="sp-coord-label">Start</span>
+            <span class="sp-coord-val">${Number(seg.start_lat).toFixed(6)}</span>
+            <span class="sp-coord-val">${Number(seg.start_lon).toFixed(6)}</span>
+          </div>
+          <div class="sp-coord-item">
+            <span class="sp-coord-label">End</span>
+            <span class="sp-coord-val">${Number(seg.end_lat).toFixed(6)}</span>
+            <span class="sp-coord-val">${Number(seg.end_lon).toFixed(6)}</span>
+          </div>
+        </div>
+      </div>
+      ${breakdownHtml}
+      <div class="sp-list">${vcardsHtml}</div>`;
+    return { filtered, html };
+  }
+
+  // Plain-language delta summary for the bottom bar — the numbers drive the
+  // wording, never hardcoded, so it stays accurate as scores change.
+  function buildMbsDeltaSummary(seg, dateA, entryA, dateB, entryB) {
+    const sa = entryA?.score, sb = entryB?.score;
+    const name = seg.segment_name || segmentLocationName(seg);
+    if (!sa || !sb) {
+      return `<b>${name}</b> — comparison needs data on both dates; one of ${dateA} / ${dateB} has none.`;
+    }
+    const diff = sb.health_score - sa.health_score;
+    const vdiff = (sb.violation_count ?? 0) - (sa.violation_count ?? 0);
+    let verdict;
+    if (diff > 0)      verdict = `<span class="up">improved by ${diff} point${diff === 1 ? "" : "s"}</span>`;
+    else if (diff < 0) verdict = `<span class="down">reduced by ${Math.abs(diff)} point${Math.abs(diff) === 1 ? "" : "s"}</span>`;
+    else               verdict = `unchanged`;
+    const vword = vdiff > 0 ? `<span class="down">+${vdiff} more violations</span>`
+                : vdiff < 0 ? `<span class="up">${Math.abs(vdiff)} fewer violations</span>`
+                : `same violation count`;
+    return `<b>${name}</b> — from ${dateA} (${sa.health_score}) to ${dateB} (${sb.health_score}): road quality has ${verdict}. ${vword} (${sa.violation_count ?? 0} → ${sb.violation_count ?? 0}).`;
+  }
+
+  // Tracks the segment currently open in the comparison dock, so the header's
+  // own date pickers can re-run the comparison in place without needing to
+  // reopen the whole flow from a segment panel or the toolbar picker.
+  let mbsCompareSegmentId   = null;
+  let mbsCompareSegmentName = null;
+  let mbsCompareAllDates    = [];
+
+  async function runMbsCompare(segmentId, dateA, dateB, segmentName) {
+    // Always compare chronologically (earliest first) regardless of which
+    // one was picked as "Date A" vs "Date B" — "improved"/"reduced" wording
+    // only reads correctly as a real time progression, earlier -> later.
+    if (dateA > dateB) { [dateA, dateB] = [dateB, dateA]; }
+    mbsCompareSegmentId   = segmentId;
+    mbsCompareSegmentName = segmentName;
+
+    const panelA = document.getElementById("mcd-panel-a");
+    const panelB = document.getElementById("mcd-panel-b");
+    const summaryEl = document.getElementById("mcd-summary");
+    panelA.innerHTML = `<div class="mcm-empty">Loading…</div>`;
+    panelB.innerHTML = "";
+    summaryEl.innerHTML = "";
+    document.getElementById("mbs-compare-dock").classList.add("open");
+    segPanel.classList.remove("open");
+    document.getElementById("mcd-seg-name").textContent = segmentName || segmentId.slice(0, 8);
+
+    const [compareData, violA, violB, datesData] = await Promise.all([
+      fetch(`${API}/api/mbs/compare?segment_id=${encodeURIComponent(segmentId)}&date_a=${encodeURIComponent(dateA)}&date_b=${encodeURIComponent(dateB)}`).then(r => r.json()),
+      fetch(`${API}/api/mbs/segment-violations?segment_id=${encodeURIComponent(segmentId)}&date=${encodeURIComponent(dateA)}`).then(r => r.json()).catch(() => []),
+      fetch(`${API}/api/mbs/segment-violations?segment_id=${encodeURIComponent(segmentId)}&date=${encodeURIComponent(dateB)}`).then(r => r.json()).catch(() => []),
+      fetch(`${API}/api/mbs/segment-dates?segment_id=${encodeURIComponent(segmentId)}`).then(r => r.json()),
+    ]);
+
+    const seg = compareData.segment;
+    const colA = buildMbsFullColumn(seg, compareData.date_a.date, compareData.date_a, violA);
+    const colB = buildMbsFullColumn(seg, compareData.date_b.date, compareData.date_b, violB);
+    panelA.innerHTML = colA.html;
+    panelB.innerHTML = colB.html;
+    wireMbsPanelImages(panelA, colA.filtered);
+    wireMbsPanelImages(panelB, colB.filtered);
+    summaryEl.innerHTML = buildMbsDeltaSummary(seg, compareData.date_a.date, compareData.date_a, compareData.date_b.date, compareData.date_b);
+
+    // Sync the header's live date pickers so either side can be changed
+    // in place — the dock stays open and re-renders instead of closing.
+    mbsCompareAllDates = datesData.dates || [];
+    const opts = mbsCompareAllDates.map(d => `<option value="${d}">${d}</option>`).join("");
+    const sel1 = document.getElementById("mcd-date-1");
+    const sel2 = document.getElementById("mcd-date-2");
+    sel1.innerHTML = opts; sel2.innerHTML = opts;
+    sel1.value = compareData.date_a.date;
+    sel2.value = compareData.date_b.date;
+  }
+
+  function reRunMbsCompareFromHeader() {
+    const d1 = document.getElementById("mcd-date-1").value;
+    const d2 = document.getElementById("mcd-date-2").value;
+    if (!mbsCompareSegmentId || !d1 || !d2 || d1 === d2) return;
+    runMbsCompare(mbsCompareSegmentId, d1, d2, mbsCompareSegmentName);
+  }
+  document.getElementById("mcd-date-1").addEventListener("change", reRunMbsCompareFromHeader);
+  document.getElementById("mcd-date-2").addEventListener("change", reRunMbsCompareFromHeader);
+
+  function closeMbsCompareDock() {
+    document.getElementById("mbs-compare-dock").classList.remove("open");
+  }
+  document.getElementById("mcd-close").addEventListener("click", closeMbsCompareDock);
+
+  document.getElementById("sp-mbs-compare-show-btn").addEventListener("click", () => {
+    if (!currentMbsPanelSeg) return;
+    const dateB = document.getElementById("sp-mbs-compare-date").value;
+    if (!dateB) return;
+    runMbsCompare(currentMbsPanelSeg.mbs_segment_id, currentMbsPanelDate, dateB, currentMbsPanelSeg.segment_name);
+  });
 
   // ── Hover card (violation mouseover) ────────────────────────────────────────
   const hoverCard = document.getElementById("hover-card");
@@ -1440,13 +2149,21 @@
   lightbox.addEventListener("click", (e) => { if (e.target===lightbox||e.target===lightboxImg) closeLightbox(); });
   document.getElementById("lightbox-close").addEventListener("click", closeLightbox);
   document.addEventListener("keydown", (e) => {
-    if (!lightbox.classList.contains("open")) {
-      if (e.key==="Escape") { hideClickPopup(); segPanel.classList.remove("open"); clearMarkerHighlight(); }
+    if (lightbox.classList.contains("open")) {
+      if (e.key==="Escape")      closeLightbox();
+      else if (e.key==="ArrowLeft"  && !lightboxPrev.disabled) _lbRender(lightboxViolIdx - 1);
+      else if (e.key==="ArrowRight" && !lightboxNext.disabled) _lbRender(lightboxViolIdx + 1);
       return;
     }
-    if (e.key==="Escape")      closeLightbox();
-    else if (e.key==="ArrowLeft"  && !lightboxPrev.disabled) _lbRender(lightboxViolIdx - 1);
-    else if (e.key==="ArrowRight" && !lightboxNext.disabled) _lbRender(lightboxViolIdx + 1);
+    if (e.key==="Escape" && document.getElementById("mbs-compare-dock").classList.contains("open")) {
+      closeMbsCompareDock();
+      return;
+    }
+    if (e.key==="Escape" && document.getElementById("mbs-corridor-compare-dock").classList.contains("open")) {
+      closeMbsCorridorCompareDock();
+      return;
+    }
+    if (e.key==="Escape") { hideClickPopup(); segPanel.classList.remove("open"); clearMarkerHighlight(); }
   });
 
   // ── Data loading ────────────────────────────────────────────────────────────
@@ -1504,6 +2221,7 @@
 
   // ── Segment rendering ───────────────────────────────────────────────────────
   function renderSegments(segs) {
+    if (mbsMode) return;   // corridor view owns the map while toggled on
     segLayers.forEach(l => map.removeLayer(l));
     segLayers = [];
     segs.forEach(seg => {
@@ -1557,10 +2275,497 @@
     });
   }
 
+  // ── MBS Corridor: data loading + rendering ──────────────────────────────────
+  // Loaded lazily on first toggle-on, not part of loadData()'s 30s poll —
+  // this data only changes when an offline script runs, not on every upload.
+  async function loadMbsSegments() {
+    if (allMbsSegments.length) return;
+    const res = await fetch(`${API}/api/mbs/segments`);
+    allMbsSegments = await res.json();
+  }
+
+  let mbsGeometryLoaded = false;
+  async function loadMbsGeometryOverlay() {
+    if (mbsGeometryLoaded) return;
+    mbsGeometryLoaded = true;   // display-only reference overlay — never block/retry on failure
+    try {
+      const res = await fetch(`${API}/api/mbs/geometry`);
+      if (!res.ok) return;
+      const geo = await res.json();
+      (geo.features || []).forEach(f => {
+        const coords = (f.geometry.coordinates || []).map(c => [c[1], c[0]]); // [lon,lat] -> [lat,lon]
+        if (coords.length < 2) return;
+        L.polyline(coords, { color: "#94a3b8", weight: 2, opacity: 0.55, dashArray: "4,6" })
+          .addTo(mbsGeometryLayerGroup);
+      });
+    } catch (e) { /* overlay is decorative — a failed fetch shouldn't block the corridor view */ }
+  }
+
+  async function loadMbsDates() {
+    if (mbsDates.length) return;
+    const res = await fetch(`${API}/api/mbs/dates`);
+    const data = await res.json();
+    mbsDates = data.dates || [];
+    const opts = mbsDates.map(d => `<option value="${d}">${d}</option>`).join("");
+    document.getElementById("mbs-date-select").innerHTML = opts || `<option value="">No dates yet</option>`;
+    if (mbsDates.length) {
+      document.getElementById("mbs-date-select").value = mbsDates[mbsDates.length - 1];
+    }
+
+    mbsDatesByMonth = {};
+    mbsDates.forEach(d => {
+      const mk = monthKeyOf(d);
+      (mbsDatesByMonth[mk] = mbsDatesByMonth[mk] || []).push(d);
+    });
+    mbsMonths = Object.keys(mbsDatesByMonth).sort();
+  }
+
+  // Averages each segment's health_score across every capture date within a
+  // month — "By Month" mode collapses e.g. 6 capture dates to one representative
+  // score, as opposed to "By Date" mode's exact single-day figures.
+  async function loadMbsScoresForMonth(monthKey) {
+    const dates = mbsDatesByMonth[monthKey] || [];
+    const dateScoreArrays = await Promise.all(dates.map(loadMbsScoresForDate));
+    const bucket = {};
+    dateScoreArrays.forEach(rows => {
+      (rows || []).forEach(r => {
+        if (r.health_score == null) return;
+        const b = bucket[r.mbs_segment_id] || {
+          sum: 0, n: 0, frame_count: 0, violation_count: 0,
+          pothole_count: 0, alligator_count: 0, longitudinal_count: 0,
+        };
+        b.sum += r.health_score;
+        b.n += 1;
+        b.frame_count        += r.frame_count        || 0;
+        b.violation_count    += r.violation_count    || 0;
+        b.pothole_count      += r.pothole_count      || 0;
+        b.alligator_count    += r.alligator_count    || 0;
+        b.longitudinal_count += r.longitudinal_count || 0;
+        bucket[r.mbs_segment_id] = b;
+      });
+    });
+    return Object.entries(bucket).map(([mbs_segment_id, b]) => ({
+      mbs_segment_id,
+      health_score: Math.round(b.sum / b.n),
+      frame_count: b.frame_count,
+      violation_count: b.violation_count,
+      pothole_count: b.pothole_count,
+      alligator_count: b.alligator_count,
+      longitudinal_count: b.longitudinal_count,
+    }));
+  }
+
+  async function loadMbsScoresForDate(date) {
+    if (mbsScoresByDate[date]) return mbsScoresByDate[date];
+    const res = await fetch(`${API}/api/mbs/scores?date=${encodeURIComponent(date)}`);
+    const rows = await res.json();
+    mbsScoresByDate[date] = rows;
+    return rows;
+  }
+
+  function renderMbsSegments(scoreRows) {
+    mbsLayerGroup.clearLayers();
+    const scoreById = new Map((scoreRows || []).map(r => [r.mbs_segment_id, r]));
+    allMbsSegments.forEach(seg => {
+      const path = seg.gps_path || [];
+      if (path.length < 2) return;
+      const score  = scoreById.get(seg.mbs_segment_id) || {};
+      const merged = { ...seg, ...score };
+      const color       = segColor(merged);
+      const healthLabel = segLabel(merged);
+      const name = seg.segment_name || `MBS segment #${seg.mbs_segment_id.slice(0, 8)}`;
+      const scoreLabel = merged.health_score != null
+        ? `Score ${merged.health_score} · ${merged.frame_count || 0} frames`
+        : "No data for this date";
+
+      const line = L.polyline(path.map(p => [p[0], p[1]]), {
+        color, weight: 6, opacity: 0.9, lineCap: "round", lineJoin: "round",
+      });
+      line.bindTooltip(
+        `<b style="color:${color}">${name}</b><br><span style="color:${color}">${healthLabel}</span> · ${scoreLabel}<br><span style="color:#6b7a90;font-size:10px">Click for details</span>`,
+        { sticky: true, className: "seg-tooltip" }
+      );
+      line.on("click", (e) => {
+        L.DomEvent.stopPropagation(e);
+        showMbsSegmentPanel(seg);
+      });
+      line.on("mouseover", () => line.setStyle({ weight: 10, opacity: 1 }));
+      line.on("mouseout",  () => line.setStyle({ weight: 6, opacity: 0.9 }));
+      mbsLayerGroup.addLayer(line);
+    });
+  }
+
+  async function toggleMbsMode(on) {
+    mbsMode = on;
+    document.getElementById("mbs-toggle").classList.toggle("active", on);
+    document.getElementById("mbs-date-select").disabled = !on;
+    document.getElementById("mbs-corridor-compare-btn").disabled = !on;
+
+    if (!on) {
+      map.removeLayer(mbsLayerGroup);
+      map.removeLayer(mbsGeometryLayerGroup);
+      smpPanel.classList.remove("open");
+      document.getElementById("smp-mbs-summary").style.display = "none";
+      renderSegments(filteredSegments());
+      renderFrameMarkers(allFrames);
+      return;
+    }
+
+    segLayers.forEach(l => map.removeLayer(l));
+    frameMarkerList.forEach(l => map.removeLayer(l));
+    await loadMbsSegments();
+    await loadMbsGeometryOverlay();
+    mbsGeometryLayerGroup.addTo(map);
+    await loadMbsDates();
+    const dateSelect = document.getElementById("mbs-date-select");
+    const date = dateSelect.value || mbsDates[mbsDates.length - 1];
+    if (date) {
+      const rows = await loadMbsScoresForDate(date);
+      renderMbsSegments(rows);
+    }
+    mbsLayerGroup.addTo(map);
+    renderMbsSmpPanel();
+  }
+
+  document.getElementById("mbs-toggle").addEventListener("click", () => {
+    toggleMbsMode(!mbsMode);
+  });
+
+  document.getElementById("mbs-date-select").addEventListener("change", async function() {
+    const rows = await loadMbsScoresForDate(this.value);
+    renderMbsSegments(rows);
+    renderMbsSmpPanel();
+  });
+
+  // ── MBS Corridor: whole-corridor month-vs-month dock ────────────────────────
+  // Same shape as the single-segment compare dock above, but each side shows
+  // the corridor-wide avg PCI + full segment list instead of one segment's detail.
+  function mergeMbsSegmentScores(scoreRows) {
+    const scoreById = new Map((scoreRows || []).map(r => [r.mbs_segment_id, r]));
+    return allMbsSegments.map(seg => ({ ...seg, ...(scoreById.get(seg.mbs_segment_id) || {}) }));
+  }
+
+  function buildMbsCorridorColumn(label, merged, side) {
+    const rows = merged.map((seg, i) => {
+      const color = segColor(seg);
+      const name  = seg.segment_name || `Segment #${seg.mbs_segment_id.slice(0, 8)}`;
+      const pci   = seg.health_score != null ? Math.round(seg.health_score) : "—";
+      return `<div class="smp-row" style="cursor:default">
+        <span class="smp-row-dot" style="background:${color}"></span>
+        <span class="smp-row-name" title="${name}">${i + 1}. ${name}</span>
+        <span class="smp-row-pci" style="color:${color}">${pci}/100</span>
+      </div>`;
+    }).join("");
+
+    return `
+      <div class="mcd-header-title" style="padding:12px 16px 0">${label || "No month selected"}</div>
+      <div class="smp-mbs-summary" style="display:block">${renderMbsSummaryInner(merged, true)}</div>
+      <div class="mccd-mini-map" id="mccd-mini-map-${side}"></div>
+      <div class="smp-list">${rows}</div>
+    `;
+  }
+
+  // Small, non-interactive Leaflet maps — used both by the interactive dock's
+  // live preview and (via separate containers) the print-only report below.
+  // Keyed by an arbitrary cache key, not the DOM id, since the report needs
+  // its own map instances in its own containers.
+  let mccdMiniMaps = {};   // cacheKey -> { map, bounds } — bounds kept so beforeprint can re-fit
+  function renderMiniMap(containerId, cacheKey, merged) {
+    if (mccdMiniMaps[cacheKey]) { mccdMiniMaps[cacheKey].map.remove(); delete mccdMiniMaps[cacheKey]; }
+    const el = document.getElementById(containerId);
+    if (!el) return;
+
+    const mini = L.map(el, {
+      zoomControl: false, attributionControl: false, dragging: false,
+      scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false,
+      keyboard: false, tap: false,
+    });
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      subdomains: "abcd", maxZoom: 20,
+    }).addTo(mini);
+
+    const bounds = [];
+    merged.forEach(seg => {
+      const path = seg.gps_path || [];
+      if (path.length < 2) return;
+      const latlngs = path.map(p => [p[0], p[1]]);
+      L.polyline(latlngs, { color: segColor(seg), weight: 5, opacity: 0.9, lineCap: "round", lineJoin: "round" }).addTo(mini);
+      bounds.push(...latlngs);
+    });
+
+    mini.setView([24.83, 46.89], 12);
+    setTimeout(() => {
+      mini.invalidateSize();
+      if (bounds.length) mini.fitBounds(bounds, { padding: [10, 10] });
+    }, 0);
+
+    mccdMiniMaps[cacheKey] = { map: mini, bounds };
+  }
+
+  // The report's maps are built off-screen (position:absolute, see CSS) at a
+  // fixed 900px width so Leaflet has real layout to size tiles against — but
+  // the printed page is usually a different width, so re-fit everything right
+  // before the print dialog actually renders the page.
+  window.addEventListener("beforeprint", () => {
+    Object.values(mccdMiniMaps).forEach(({ map, bounds }) => {
+      map.invalidateSize();
+      if (bounds.length) map.fitBounds(bounds, { padding: [10, 10] });
+    });
+  });
+
+  // "date": each dropdown option is one capture date, compared exactly as-is.
+  // "month": each option is a calendar month, averaged across every capture
+  // date inside it (loadMbsScoresForMonth) — coarser, but useful when a month
+  // has several capture dates and you want one representative figure.
+  let mccdGranularity = "date";
+
+  function populateMccdSelects() {
+    const sel1 = document.getElementById("mccd-date-1");
+    const sel2 = document.getElementById("mccd-date-2");
+    const keys = mccdGranularity === "month" ? mbsMonths : mbsDates;
+    const label = mccdGranularity === "month" ? monthLabel : (d => d);
+    const opts = keys.map(k => `<option value="${k}">${label(k)}</option>`).join("")
+                 || `<option value="">No ${mccdGranularity === "month" ? "months" : "dates"} yet</option>`;
+    sel1.innerHTML = opts;
+    sel2.innerHTML = opts;
+    if (keys.length >= 2) {
+      sel1.value = keys[keys.length - 2];
+      sel2.value = keys[keys.length - 1];
+    } else if (keys.length === 1) {
+      sel1.value = sel2.value = keys[0];
+    }
+  }
+
+  function setMccdGranularity(mode) {
+    mccdGranularity = mode;
+    document.getElementById("mccd-mode-date").classList.toggle("active", mode === "date");
+    document.getElementById("mccd-mode-month").classList.toggle("active", mode === "month");
+    document.getElementById("mccd-title").textContent =
+      `Makkah–Jeddah Corridor · ${mode === "month" ? "Month" : "Date"} Comparison`;
+    populateMccdSelects();
+    renderMbsCorridorCompare();
+  }
+
+  // One row's delta cell: arrow follows the actual arithmetic sign, but the
+  // COLOR follows whether that direction is good or bad for pavement condition
+  // (e.g. more green segments is good/green text; more potholes is bad/red
+  // text, even though both are numeric increases) — goodDirection is "up" or
+  // "down" depending which arithmetic direction counts as an improvement.
+  function pcrChange(oldVal, newVal, goodDirection) {
+    const diff = newVal - oldVal;
+    if (diff === 0) return `<span class="pcr-chg pcr-flat">— unchanged</span>`;
+    const isIncrease = diff > 0;
+    const isGood = goodDirection === "up" ? isIncrease : !isIncrease;
+    const cls = isGood ? "pcr-good" : "pcr-bad";
+    const arrow = isIncrease ? "↑" : "↓";
+    let pctHtml = "";
+    if (oldVal !== 0) {
+      const pct = (diff / oldVal) * 100;
+      pctHtml = ` <span class="pcr-pct">${pct > 0 ? "+" : ""}${pct.toFixed(1)}%</span>`;
+    } else if (newVal !== 0) {
+      pctHtml = ` <span class="pcr-pct">new</span>`;
+    }
+    return `<span class="pcr-chg ${cls}">${arrow} ${Math.abs(diff).toLocaleString()}${pctHtml}</span>`;
+  }
+
+  // Plain-language summary for the verdict box — short declarative sentences
+  // rather than one clause chained together, so it stays grammatically correct
+  // no matter which of the many possible up/down/flat combinations occurs.
+  function buildPcrVerdictText(avgA, avgB) {
+    if (avgA == null || avgB == null) return "Not enough comparable data for these two periods.";
+    return avgA === avgB
+      ? `Average corridor condition held steady at <b>${avgB}</b>.`
+      : `Average corridor condition ${avgB > avgA ? "rose" : "fell"} from <b>${avgA}</b> to <b>${avgB}</b>.`;
+  }
+
+  // The actual "Download PDF" content — a self-contained report skin, built
+  // fresh from mergedA/mergedB every time the dock's dates/months change.
+  function renderMccdReport(labelA, mergedA, labelB, mergedB) {
+    const { avg: avgA, total } = mbsCorridorAvg(mergedA);
+    const { avg: avgB } = mbsCorridorAvg(mergedB);
+    const colorsA = mbsCorridorColorCounts(mergedA);
+    const colorsB = mbsCorridorColorCounts(mergedB);
+    const distressA = mbsCorridorDistressTotals(mergedA);
+    const distressB = mbsCorridorDistressTotals(mergedB);
+
+    const scoreDiff  = (avgB ?? 0) - (avgA ?? 0);
+    const scoreCls   = scoreDiff > 0 ? "pcr-good" : scoreDiff < 0 ? "pcr-bad" : "pcr-flat";
+    const scoreArrow = scoreDiff > 0 ? "↑" : scoreDiff < 0 ? "↓" : "—";
+    const pctOfTotal = n => total ? (n / total) * 100 : 0;
+    const generatedOn = new Date().toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+
+    document.getElementById("mccd-report").innerHTML = `
+      <div class="pcr-wrap">
+        <header>
+          <div class="pcr-eyebrow">Pavement Condition Index</div>
+          <h1>Makkah–Jeddah Corridor Comparison Report</h1>
+          <p class="pcr-sub">Segment-level PCI assessment of the MBS Road corridor, comparing ${labelA} against ${labelB} across ${total} monitored road segments.</p>
+          <div class="pcr-meta-row">
+            <span class="pcr-chip">Region&nbsp; <b>Makkah–Jeddah (MBS Road)</b></span>
+            <span class="pcr-chip">Segments&nbsp; <b>${total}</b></span>
+            <span class="pcr-chip pcr-mono">${labelA} &nbsp;→&nbsp; ${labelB}</span>
+            <span class="pcr-chip">Generated&nbsp; <b>${generatedOn}</b></span>
+          </div>
+        </header>
+        <div class="pcr-verdict">
+          <div class="pcr-delta ${scoreCls}">${scoreDiff > 0 ? "+" : ""}${scoreDiff}<span class="pcr-u">&nbsp;PCI</span></div>
+          <div class="pcr-arrow ${scoreCls}">${scoreArrow}</div>
+          <div class="pcr-vtext">${buildPcrVerdictText(avgA, avgB)}</div>
+        </div>
+      </div>
+
+      <main>
+      <div class="pcr-wrap">
+        <table class="pcr-cmp">
+          <thead>
+            <tr>
+              <th class="pcr-metric">Metric</th>
+              <th><div class="pcr-colhd"><span class="pcr-dt">${labelA}</span></div></th>
+              <th><div class="pcr-colhd"><span class="pcr-dt">${labelB}</span></div></th>
+              <th>Change</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="pcr-scorerow">
+              <th>Average PCI<span class="pcr-u">score / 100</span></th>
+              <td class="pcr-d1" style="color:${pciColor(avgA)}">${avgA ?? "—"}</td>
+              <td style="color:${pciColor(avgB)}">${avgB ?? "—"}</td>
+              <td class="pcr-delta">${pcrChange(avgA ?? 0, avgB ?? 0, "up")}</td>
+            </tr>
+
+            <tr class="pcr-sectionrow"><th colspan="4">Condition distribution · segments</th></tr>
+            <tr>
+              <th>Green · good</th>
+              <td class="pcr-d1">${colorsA.green}</td>
+              <td>${colorsB.green}
+                <span class="pcr-cbar"><span style="width:${pctOfTotal(colorsB.green)}%;background:var(--seg-clean)"></span><span style="width:${100 - pctOfTotal(colorsB.green)}%;background:var(--border)"></span></span>
+              </td>
+              <td class="pcr-delta">${pcrChange(colorsA.green, colorsB.green, "up")}</td>
+            </tr>
+            <tr>
+              <th>Orange · fair</th>
+              <td class="pcr-d1">${colorsA.orange}</td>
+              <td>${colorsB.orange}</td>
+              <td class="pcr-delta">${pcrChange(colorsA.orange, colorsB.orange, "down")}</td>
+            </tr>
+            <tr>
+              <th>Red · poor</th>
+              <td class="pcr-d1">${colorsA.red}</td>
+              <td>${colorsB.red}</td>
+              <td class="pcr-delta">${pcrChange(colorsA.red, colorsB.red, "down")}</td>
+            </tr>
+            <tr>
+              <th>No data</th>
+              <td class="pcr-d1">${colorsA.pending}</td>
+              <td>${colorsB.pending}</td>
+              <td class="pcr-delta">${pcrChange(colorsA.pending, colorsB.pending, "down")}</td>
+            </tr>
+
+            <tr class="pcr-sectionrow"><th colspan="4">Distress types</th></tr>
+            <tr>
+              <th>Longitudinal cracks</th>
+              <td class="pcr-d1">${distressA.longitudinal.toLocaleString()}</td>
+              <td>${distressB.longitudinal.toLocaleString()}</td>
+              <td class="pcr-delta">${pcrChange(distressA.longitudinal, distressB.longitudinal, "down")}</td>
+            </tr>
+            <tr>
+              <th>Alligator cracks</th>
+              <td class="pcr-d1">${distressA.alligator.toLocaleString()}</td>
+              <td>${distressB.alligator.toLocaleString()}</td>
+              <td class="pcr-delta">${pcrChange(distressA.alligator, distressB.alligator, "down")}</td>
+            </tr>
+            <tr>
+              <th>Potholes</th>
+              <td class="pcr-d1">${distressA.pothole.toLocaleString()}</td>
+              <td>${distressB.pothole.toLocaleString()}</td>
+              <td class="pcr-delta">${pcrChange(distressA.pothole, distressB.pothole, "down")}</td>
+            </tr>
+
+            <tr class="pcr-sectionrow"><th colspan="4">Survey coverage</th></tr>
+            <tr>
+              <th>Total available segments</th>
+              <td class="pcr-d1">${total}</td>
+              <td>${total}</td>
+              <td class="pcr-delta"><span class="pcr-chg pcr-flat">— unchanged</span></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="pcr-maps">
+          <div class="pcr-mapgrid">
+            <div class="pcr-mapcard">
+              <div class="pcr-mh"><span class="pcr-dt">${labelA}</span></div>
+              <div class="pcr-map-frame" id="pcr-map-a"></div>
+              <div class="pcr-mapcap">📍 Jeddah → Mecca · MBS Road</div>
+            </div>
+            <div class="pcr-mapcard">
+              <div class="pcr-mh"><span class="pcr-dt">${labelB}</span></div>
+              <div class="pcr-map-frame" id="pcr-map-b"></div>
+              <div class="pcr-mapcap">📍 Jeddah → Mecca · MBS Road</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </main>
+
+      <footer>
+        <div class="pcr-wrap pcr-row">
+          <span>Pavement Condition Index Comparison Report</span>
+          <span class="pcr-mono">Generated ${new Date().toLocaleString()}</span>
+        </div>
+      </footer>
+    `;
+
+    renderMiniMap("pcr-map-a", "pcrA", mergedA);
+    renderMiniMap("pcr-map-b", "pcrB", mergedB);
+  }
+
+  async function renderMbsCorridorCompare() {
+    const k1 = document.getElementById("mccd-date-1").value;
+    const k2 = document.getElementById("mccd-date-2").value;
+    const panelA = document.getElementById("mccd-panel-a");
+    const panelB = document.getElementById("mccd-panel-b");
+    if (!k1 || !k2) { panelA.innerHTML = panelB.innerHTML = ""; return; }
+
+    const loadScores = mccdGranularity === "month" ? loadMbsScoresForMonth : loadMbsScoresForDate;
+    const label       = mccdGranularity === "month" ? monthLabel : (d => d);
+
+    const [rowsA, rowsB] = await Promise.all([loadScores(k1), loadScores(k2)]);
+    const mergedA = mergeMbsSegmentScores(rowsA);
+    const mergedB = mergeMbsSegmentScores(rowsB);
+    panelA.innerHTML = buildMbsCorridorColumn(label(k1), mergedA, "a");
+    panelB.innerHTML = buildMbsCorridorColumn(label(k2), mergedB, "b");
+    renderMiniMap("mccd-mini-map-a", "dockA", mergedA);
+    renderMiniMap("mccd-mini-map-b", "dockB", mergedB);
+
+    renderMccdReport(label(k1), mergedA, label(k2), mergedB);
+  }
+
+  async function openMbsCorridorCompareDock() {
+    await loadMbsSegments();
+    await loadMbsDates();
+    populateMccdSelects();
+    document.getElementById("mbs-corridor-compare-dock").classList.add("open");
+    renderMbsCorridorCompare();
+  }
+
+  function closeMbsCorridorCompareDock() {
+    document.getElementById("mbs-corridor-compare-dock").classList.remove("open");
+  }
+
+  document.getElementById("mbs-corridor-compare-btn").addEventListener("click", openMbsCorridorCompareDock);
+  document.getElementById("mccd-close").addEventListener("click", closeMbsCorridorCompareDock);
+  document.getElementById("mccd-download-btn").addEventListener("click", () => window.print());
+  document.getElementById("mccd-date-1").addEventListener("change", renderMbsCorridorCompare);
+  document.getElementById("mccd-date-2").addEventListener("change", renderMbsCorridorCompare);
+  document.getElementById("mccd-mode-date").addEventListener("click", () => setMccdGranularity("date"));
+  document.getElementById("mccd-mode-month").addEventListener("click", () => setMccdGranularity("month"));
+
   // ── Frame markers ───────────────────────────────────────────────────────────
   function renderFrameMarkers(frames) {
     frameMarkerList.forEach(m => map.removeLayer(m));
     frameMarkerList = [];
+    if (!showNoViolationFrames) return;
     // Only render individual frame dots at street level — adding thousands of
     // DOM elements at lower zoom freezes the browser and gains nothing visually.
     if (map.getZoom() < 16) return;
@@ -1594,6 +2799,7 @@
   function renderMarkers(violations) {
     markerList.forEach(m => map.removeLayer(m));
     markerList = [];
+    if (!showViolationMarkers) return;
 
     const filtered = violations.filter(v => {
       if (v.latitude==null || v.longitude==null) return false;
@@ -1753,12 +2959,26 @@
       renderMarkers(allViolations);
     });
   });
+
+  document.getElementById("toggle-violation-dots").addEventListener("click", function() {
+    showViolationMarkers = !showViolationMarkers;
+    this.classList.toggle("active", showViolationMarkers);
+    renderMarkers(allViolations);
+  });
+
+  document.getElementById("toggle-no-violation-dots").addEventListener("click", function() {
+    showNoViolationFrames = !showNoViolationFrames;
+    this.classList.toggle("active", showNoViolationFrames);
+    renderFrameMarkers(allFrames);
+  });
+
   // ── Sub-municipality segment panel ──────────────────────────────────────────
   const smpPanel    = document.getElementById("submuni-panel");
   const smpTitle    = document.getElementById("smp-title");
   const smpCount    = document.getElementById("smp-count");
   const smpListEl   = document.getElementById("smp-list");
   let smpColorFilter = "all";
+  let showAllSegmentsList = false;
 
   function smpGroup(seg) {
     const hc = seg.health_condition || segLabel(seg);
@@ -1767,14 +2987,129 @@
     return "red";
   }
 
+  // Average PCI across a corridor's segments for one date — only segments with
+  // a computed score for that date count toward the average; "total" is the
+  // full frozen-segment count (constant across dates, see mbs_segments).
+  function mbsCorridorAvg(mergedSegs) {
+    const scored = mergedSegs.filter(s => s.health_score != null);
+    const avg = scored.length
+      ? Math.round(scored.reduce((sum, s) => sum + s.health_score, 0) / scored.length)
+      : null;
+    return { avg, total: mergedSegs.length, scoredCount: scored.length };
+  }
+
+  // Green/Orange/Red counts — "pending" (no score yet for this period) is kept
+  // separate from "red" so an unscored segment never inflates the Poor count.
+  function mbsCorridorColorCounts(mergedSegs) {
+    const counts = { green: 0, orange: 0, red: 0, pending: 0 };
+    mergedSegs.forEach(s => {
+      if (s.health_score == null) { counts.pending++; return; }
+      counts[smpGroup(s)]++;
+    });
+    return counts;
+  }
+
+  function mbsCorridorDistressTotals(mergedSegs) {
+    return mergedSegs.reduce((acc, s) => {
+      acc.pothole      += s.pothole_count      || 0;
+      acc.alligator    += s.alligator_count    || 0;
+      acc.longitudinal += s.longitudinal_count || 0;
+      return acc;
+    }, { pothole: 0, alligator: 0, longitudinal: 0 });
+  }
+
+  // Shared summary block markup — used by both the single-month list panel
+  // and each column of the month-vs-month compare dock, so the two stay
+  // visually and numerically consistent.
+  function renderMbsSummaryInner(mergedSegs, forPdf) {
+    const { avg, total } = mbsCorridorAvg(mergedSegs);
+    const colors   = mbsCorridorColorCounts(mergedSegs);
+    const distress = mbsCorridorDistressTotals(mergedSegs);
+    const pctOf = n => total ? (n / total) * 100 : 0;
+
+    return `
+      <div class="mcs-region">📍 Region: Makkah–Jeddah (MBS Road)</div>
+      <div class="mcs-avg-row">
+        <span class="mcs-avg-score" style="color:${pciColor(avg)}">${avg != null ? avg : "—"}</span>
+        <span class="mcs-avg-label">Avg PCI Score / 100</span>
+      </div>
+      <div class="mcs-total">Total Available Segments: ${total}</div>
+
+      <div class="mcs-section-label">${forPdf ? "Segment Condition Distribution" : "Condition Distribution"}</div>
+      <div class="mcs-colorbar">
+        <div class="mcs-color-seg" style="background:#16a34a;width:${pctOf(colors.green)}%"></div>
+        <div class="mcs-color-seg" style="background:#ea580c;width:${pctOf(colors.orange)}%"></div>
+        <div class="mcs-color-seg" style="background:#dc2626;width:${pctOf(colors.red)}%"></div>
+        <div class="mcs-color-seg" style="background:#cbd5e1;width:${pctOf(colors.pending)}%"></div>
+      </div>
+      <div class="mcs-color-legend">
+        <span><span class="mcs-dot" style="background:#16a34a"></span>Green · ${colors.green}</span>
+        <span><span class="mcs-dot" style="background:#ea580c"></span>Orange · ${colors.orange}</span>
+        <span><span class="mcs-dot" style="background:#dc2626"></span>Red · ${colors.red}</span>
+        ${colors.pending ? `<span><span class="mcs-dot" style="background:#cbd5e1"></span>No data · ${colors.pending}</span>` : ""}
+      </div>
+
+      <div class="mcs-section-label">Distress Types</div>
+      <div class="mcs-distress">
+        <div class="mcs-distress-row"><span class="mcs-dot" style="background:#f85149"></span>Potholes<span class="mcs-distress-val">${distress.pothole}</span></div>
+        <div class="mcs-distress-row"><span class="mcs-dot" style="background:#ffa657"></span>Alligator Cracks<span class="mcs-distress-val">${distress.alligator}</span></div>
+        <div class="mcs-distress-row"><span class="mcs-dot" style="background:#8b5cf6"></span>Longitudinal Cracks<span class="mcs-distress-val">${distress.longitudinal}</span></div>
+      </div>
+    `;
+  }
+
+  function renderMbsSmpPanel() {
+    smpPanel.classList.add("open");
+    const date = document.getElementById("mbs-date-select").value;
+    const scoreRows = mbsScoresByDate[date] || [];
+    const scoreById = new Map(scoreRows.map(r => [r.mbs_segment_id, r]));
+    const merged = allMbsSegments.map(seg => ({ ...seg, ...(scoreById.get(seg.mbs_segment_id) || {}) }));
+
+    smpTitle.textContent = date ? `Makkah–Jeddah Corridor · ${date}` : "Makkah–Jeddah Corridor";
+
+    const summaryEl = document.getElementById("smp-mbs-summary");
+    summaryEl.style.display = "block";
+    summaryEl.innerHTML = renderMbsSummaryInner(merged);
+
+    const green  = merged.filter(s => smpGroup(s) === "green").length;
+    const orange = merged.filter(s => smpGroup(s) === "orange").length;
+    const red    = merged.filter(s => smpGroup(s) === "red").length;
+    smpCount.textContent = `${merged.length} segments · ${green} green · ${orange} orange · ${red} red`;
+
+    const visible = smpColorFilter === "all" ? merged : merged.filter(s => smpGroup(s) === smpColorFilter);
+    if (visible.length === 0) {
+      smpListEl.innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No segments</div>`;
+      return;
+    }
+    smpListEl.innerHTML = visible.map((seg, i) => {
+      const color = segColor(seg);
+      const name  = seg.segment_name || `Segment #${seg.mbs_segment_id.slice(0, 8)}`;
+      const pci   = seg.health_score != null ? seg.health_score : "—";
+      return `<div class="smp-row" data-smp-idx="${i}">
+        <span class="smp-row-dot" style="background:${color}"></span>
+        <span class="smp-row-name" title="${name}">${name}</span>
+        <span class="smp-row-pci" style="color:${color}">${pci}</span>
+      </div>`;
+    }).join("");
+
+    smpListEl.querySelectorAll(".smp-row[data-smp-idx]").forEach(row => {
+      const idx = parseInt(row.dataset.smpIdx, 10);
+      const seg = visible[idx];
+      row.addEventListener("click", () => showMbsSegmentPanel(seg));
+    });
+  }
+
   function renderSmpPanel(segs) {
-    if (activeSubmuniFilter === "all") {
+    if (mbsMode) { renderMbsSmpPanel(); return; }
+    document.getElementById("smp-mbs-summary").style.display = "none";
+    const showingAll = activeSubmuniFilter === "all";
+    if (showingAll && !showAllSegmentsList) {
       smpPanel.classList.remove("open");
       return;
     }
     smpPanel.classList.add("open");
-    const subSegs = segs.filter(s => s.submunicipality === activeSubmuniFilter);
-    smpTitle.textContent = activeSubmuniFilter;
+    const subSegs = showingAll ? segs : segs.filter(s => s.submunicipality === activeSubmuniFilter);
+    smpTitle.textContent = showingAll ? "All Segments" : activeSubmuniFilter;
     const green  = subSegs.filter(s => smpGroup(s) === "green").length;
     const orange = subSegs.filter(s => smpGroup(s) === "orange").length;
     const red    = subSegs.filter(s => smpGroup(s) === "red").length;
@@ -1819,6 +3154,12 @@
     });
   }
 
+  document.querySelector(".stat-card.segs").addEventListener("click", () => {
+    showAllSegmentsList = !showAllSegmentsList;
+    document.querySelector(".stat-card.segs").classList.toggle("active", showAllSegmentsList);
+    renderSmpPanel(allSegments);
+  });
+
   document.querySelectorAll(".smp-tab").forEach(btn => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".smp-tab").forEach(b => b.classList.remove("active"));
@@ -1826,6 +3167,24 @@
       smpColorFilter = btn.dataset.smp;
       renderSmpPanel(allSegments);
     });
+  });
+
+  document.getElementById("smp-close").addEventListener("click", () => {
+    if (mbsMode) {
+      // Corridor map/toggle stays active — this just hides the list.
+      smpPanel.classList.remove("open");
+      return;
+    }
+    showAllSegmentsList = false;
+    document.querySelector(".stat-card.segs").classList.remove("active");
+    activeSubmuniFilter = "all";
+    const subEl = document.getElementById("filter-submuni");
+    subEl.value = "all";
+    subEl.classList.remove("has-value");
+    smpPanel.classList.remove("open");
+    renderSegments(filteredSegments());
+    renderMarkers(allViolations);
+    renderFrameMarkers(allFrames);
   });
 
   // ── Municipality / sub-municipality filter events ───────────────────────────
@@ -1849,6 +3208,8 @@
     subEl.value = "all";
     subEl.classList.remove("has-value");
 
+    showAllSegmentsList = false;
+    document.querySelector(".stat-card.segs").classList.remove("active");
     smpPanel.classList.remove("open");
     renderSegments(filteredSegments());
     renderMarkers(allViolations);

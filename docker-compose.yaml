@@ -63,6 +63,7 @@ services:
       - ./downloaded_images:/app/downloaded_images
       - ./app/map.html:/app/map.html
       - ./app/main.py:/app/main.py
+      - ./app/static:/app/static
     depends_on:
       mysql:
         condition: service_healthy
@@ -84,7 +85,7 @@ services:
       app:
         condition: service_started
     deploy:
-      replicas: 20
+      replicas: 27
 
   # ── Model Call Worker — model_queue → result_queue ───────────────────────────
   model_call:
@@ -101,7 +102,7 @@ services:
       app:
         condition: service_started
     deploy:
-      replicas: 20
+      replicas: 27
 
   #── Processing Engine Worker ─────────────────────────────────────────────────
   processing_engine:
@@ -120,7 +121,7 @@ services:
       model_call:
         condition: service_started
     deploy:
-      replicas: 12
+      replicas: 19
 
   # ── Streamlit Dashboard ──────────────────────────────────────────────────────
   streamlit:
@@ -142,9 +143,10 @@ services:
       MYSQL_USER:     pci_user
       MYSQL_PASSWORD: pci_pass
       MYSQL_DB:       pci
-      # Public URL used in popup "View image" links — must reach the Flask app
-      # from the user's browser, so use localhost (port is mapped on the host).
-      FLASK_API_PUBLIC: "http://localhost:5000"
+      # Public URL used in popup "View image" links. Streamlit renders these
+      # server-side, so it must be told the host the browser will use. Set
+      # PUBLIC_HOST in .env to the VM's IP; defaults to localhost for local dev.
+      FLASK_API_PUBLIC: "http://${PUBLIC_HOST:-localhost}:5000"
     depends_on:
       mysql:
         condition: service_healthy
