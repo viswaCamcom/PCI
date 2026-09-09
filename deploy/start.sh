@@ -49,15 +49,30 @@ echo "    cores: $CORES (compose declares 73 worker replicas)"
 # (Makkah 002001 + Jeddah 005001) averaging 260 KB → ~18 GB of originals, plus
 # ~3 GB of redrawn annotations for the ~10k frames that have violations, plus
 # docker build layers. Refuse to start a fetch that cannot finish.
+# Measured: 2.2G of built layers + 1.5G of mysql/rabbitmq base + ~0.5G of
+# restored MySQL data + ~3G of transient build cache. Annotated images are
+# served from the bucket, so they cost nothing on disk. Fetching the originals
+# is what makes this expensive — hence the two thresholds.
 AVAIL_GB=$(df -BG --output=avail . | tail -1 | tr -dc '0-9')
-echo "    free disk: ${AVAIL_GB}G"
-if [ "$SKIP_IMAGES" = 0 ] && [ "$AVAIL_GB" -lt 40 ]; then
+NEED_GB=$([ "$SKIP_IMAGES" = 1 ] && echo 10 || echo 30)
+echo "    free disk: ${AVAIL_GB}G (need ~${NEED_GB}G)"
+if [ "$AVAIL_GB" -lt "$NEED_GB" ]; then
   echo
-  echo "ERROR: need ~40G free (18G originals + 3G annotated + build layers)."
-  echo "       Free space, then re-run. Quick wins:"
-  echo "         docker system prune -a --volumes"
-  echo "         sudo du -xh --max-depth=1 / | sort -rh | head -20"
-  echo "       Or run with --skip-images to bring up the DB and services only."
+  if [ "$SKIP_IMAGES" = 1 ]; then
+    echo "ERROR: need ~10G free to build and run (images + DB + build cache)."
+  else
+    echo "ERROR: need ~30G free — 18G of that is re-fetching the originals."
+    echo "       Run with --skip-images to build and run in ~10G; annotated"
+    echo "       images come from the bucket either way."
+  fi
+  echo
+  echo "       Reclaim space with:"
+  echo "         docker system df                  # see what is reclaimable"
+  echo "         docker builder prune              # safest, build cache only"
+  echo "         docker image prune                # dangling images"
+  echo "         docker system prune -a            # ALL unused images — on a"
+  echo "                                           # shared box this hits other"
+  echo "                                           # projects, check first"
   exit 1
 fi
 
