@@ -1212,12 +1212,30 @@
     return "Pending";
   }
 
-  // ── Map init ────────────────────────────────────────────────────────────────
+  // ── Basemap ─────────────────────────────────────────────────────────────────
+  // CARTO now requires an API key for its raster basemaps; without one every
+  // tile comes back stamped "API KEY REQUIRED". Paste a free key from
+  // carto.com below to restore the original Voyager styling. With no key we
+  // fall back to a keyless provider so the map still renders.
+  const CARTO_API_KEY    = "";      // <- a CARTO key restores Voyager
+  const BASEMAP_FALLBACK = "esri";  // "esri" = muted grey (best under the dots)
+                                    // "osm"  = standard OpenStreetMap colours
+
+  const BASEMAP = CARTO_API_KEY
+    ? { url:  "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=" + CARTO_API_KEY,
+        opts: { subdomains: "abcd", maxZoom: 20 },
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>' }
+    : BASEMAP_FALLBACK === "osm"
+    ? { url:  "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+        opts: { maxZoom: 19 },
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }
+    : { url:  "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        opts: { maxZoom: 16 },
+        attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ' };
+
+  // ── Map init ─────────────────────────────────────────────────────────────
   const map = L.map("map", { zoomControl: true }).setView([24.83, 46.89], 14);
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/">CARTO</a>',
-    subdomains: "abcd", maxZoom: 20,
-  }).addTo(map);
+  L.tileLayer(BASEMAP.url, { ...BASEMAP.opts, attribution: BASEMAP.attribution }).addTo(map);
 
   let allViolations=[], allFrames=[], allSegments=[], segLayers=[], markerList=[], frameMarkerList=[];
   let activeTypeFilter="all", activeSevFilter="all", activePciFilter="all";
@@ -2480,9 +2498,7 @@
       scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false,
       keyboard: false, tap: false,
     });
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-      subdomains: "abcd", maxZoom: 20,
-    }).addTo(mini);
+    L.tileLayer(BASEMAP.url, BASEMAP.opts).addTo(mini);
 
     const bounds = [];
     merged.forEach(seg => {
